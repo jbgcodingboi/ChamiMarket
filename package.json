@@ -1,0 +1,32 @@
+{
+  "name": "redbook-markets",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "oxlint",
+    "check": "npm run lint && npm run test && npm run build"
+  },
+  "dependencies": {
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-router-dom": "^7.18.4",
+    "zustand": "^5.0.15"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.7",
+    "@vitejs/plugin-react": "^6.1.1",
+    "oxlint": "^1.81.0",
+    "tailwindcss": "^4.3.3",
+    "vite": "^8.3.0",
+    "vitest": "^5.0.5"
+  },
+  "description": "Paper trading prediction market demo (play money only). Vite + React + Tailwind."
+}
