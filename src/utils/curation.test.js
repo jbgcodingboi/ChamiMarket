@@ -27,12 +27,14 @@ describe('dates and odds', () => {
     expect(reason({ endDate: '2027-06-02T00:00:00Z' })).toBe('ends-after-cutoff')
     expect(reason({ endDate: '2027-06-20T00:00:00Z' })).toBe('ends-after-cutoff')
   })
-  it('lists ordinary markets at any price', () => {
-    expect(reason({ title: 'Chiefs vs. Bills', yesPrice: 0.97 })).toBeNull()
-    expect(reason({ title: 'Will the Jets go 17-0?', yesPrice: 0.01 })).toBeNull()
-    expect(reason({ title: 'Will Democrats win the House?', category: 'politics', yesPrice: 0.99 })).toBeNull()
+  it('hides ordinary markets below 6% or above 95%', () => {
+    expect(reason({ title: 'Chiefs vs. Bills', yesPrice: 0.97 })).toBe('lopsided-odds')
+    expect(reason({ title: 'Will the Jets go 17-0?', yesPrice: 0.01 })).toBe('lopsided-odds')
+    expect(reason({ title: 'Will Democrats win the House?', category: 'politics', yesPrice: 0.99 })).toBe('lopsided-odds')
+    expect(reason({ title: 'Chiefs vs. Bills', yesPrice: 0.06 })).toBeNull()
+    expect(reason({ title: 'Chiefs vs. Bills', yesPrice: 0.95 })).toBeNull()
   })
-  it('holds ceasefire, alien, agreement and championship markets to 6%-95%', () => {
+  it('lists ceasefire, alien, agreement and championship markets at any price', () => {
     const cases = [
       { title: 'Russia x Ukraine ceasefire by March 31?', category: 'politics' },
       { title: 'Will the US confirm that aliens exist in 2026?', category: 'politics' },
@@ -43,10 +45,9 @@ describe('dates and odds', () => {
       { title: 'Will Arsenal win the Premier League?' },
     ]
     for (const c of cases) {
-      expect(reason({ ...c, yesPrice: 0.03 }), c.title).toBe('lopsided-odds')
-      expect(reason({ ...c, yesPrice: 0.97 }), c.title).toBe('lopsided-odds')
-      expect(reason({ ...c, yesPrice: 0.06 }), c.title).toBeNull()
-      expect(reason({ ...c, yesPrice: 0.95 }), c.title).toBeNull()
+      for (const yesPrice of [0.01, 0.03, 0.5, 0.97, 0.99]) {
+        expect(reason({ ...c, yesPrice }), `${c.title} @ ${yesPrice}`).toBeNull()
+      }
     }
   })
 })
@@ -120,7 +121,7 @@ describe('curate', () => {
   it('filters a list down to listable markets', () => {
     const list = [
       base({ id: 'a' }),
-      base({ id: 'b', title: 'Will the Jets win the Super Bowl?', yesPrice: 0.01 }),
+      base({ id: 'b', title: 'Will the Jets go 17-0?', yesPrice: 0.01 }),
       base({ id: 'c', endDate: '2026-01-01T00:00:00Z' }),
     ]
     expect(curate(list, NOW).map((m) => m.id)).toEqual(['a'])
