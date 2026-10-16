@@ -2,6 +2,7 @@ import { MIN_ORDER } from '../config.js'
 import { formatCurrency, formatShares } from './format.js'
 import { isFiniteNumber, roundMoney, roundShares } from './math.js'
 import { avgPrice, capHistory, positionKey } from './portfolio.js'
+import { own } from './safe.js'
 
 export class TradeError extends Error {}
 
@@ -213,7 +214,7 @@ export function applyResolutions(portfolio, resolutions, now = Date.now()) {
   const settled = []
   const marketIds = new Set(Object.values(portfolio.positions).map((p) => p.marketId))
   for (const marketId of marketIds) {
-    const res = resolutions[marketId]
+    const res = own(resolutions, marketId)
     if (!res) continue
     const result = settleMarket(next, { marketId, outcome: res.outcome, now })
     next = result.portfolio

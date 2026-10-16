@@ -7,6 +7,7 @@ import {
   TAGGED_CATEGORIES,
 } from '../config.js'
 import { curate, END_DATE_CUTOFF, TOP_SOCCER_LEAGUES } from '../utils/curation.js'
+import { isSafeKey } from '../utils/safe.js'
 import { fetchJson, HttpError } from './http.js'
 import { isListable, normalizeGammaMarket, toNumber } from './normalize.js'
 
@@ -184,7 +185,7 @@ export async function fetchRecentResolutions({ tagIds, now = Date.now(), days = 
     for (const ev of events) {
       for (const raw of Array.isArray(ev?.markets) ? ev.markets : []) {
         const m = normalizeGammaMarket(raw, page.tag_id === tagIds.politics ? 'politics' : 'sports')
-        if (m?.resolvedOutcome) resolutions[m.id] = m.resolvedOutcome
+        if (m?.resolvedOutcome && isSafeKey(m.id)) resolutions[m.id] = m.resolvedOutcome
       }
     }
   }

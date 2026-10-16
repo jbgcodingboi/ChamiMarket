@@ -7,6 +7,7 @@ import { createMockMarkets, isMockId } from '../services/mockData.js'
 import { fetchSnapshot } from '../services/snapshot.js'
 import { curate } from '../utils/curation.js'
 import { clamp, isFiniteNumber } from '../utils/math.js'
+import { isSafeKey, own } from '../utils/safe.js'
 import { isPlainObject, readJSON, writeJSON } from '../utils/storage.js'
 
 const CACHE_KEY = 'markets-cache'
@@ -19,9 +20,13 @@ const CATEGORY_IDS = CATEGORIES.map((c) => c.id)
 let mockList = createMockMarkets()
 const mockById = Object.fromEntries(mockList.map((m) => [m.id, m]))
 
+/** Market images must be https URLs; anything else (including a tampered cache or snapshot) is rejected. */
+const isImage = (v) => v === null || v === undefined || (typeof v === 'string' && /^https:\/\/[^\s"'<>]+$/.test(v))
+
 export const isMarketShape = (m) =>
   isPlainObject(m) &&
-  typeof m.id === 'string' &&
+  isSafeKey(m.id) &&
+  isImage(m.image) &&
   typeof m.title === 'string' &&
   CATEGORY_IDS.includes(m.category) &&
   isFiniteNumber(m.yesPrice) &&
@@ -39,14 +44,14 @@ const isCache = (c) =>
   c.markets.every(isMarketShape) &&
   (c.tagIds === null || isPlainObject(c.tagIds))
 
-const isKnown = (k) => isPlainObject(k) && Object.values(k).every(isMarketShape)
+const isKnown = (k) => isPlainObject(k) && Object.entries(k).every(([id, m]) => isMarketShape(m) && m.id === id)
 
 /** Keeps object identity for unchanged markets so memoized cards skip re-rendering. */
 function mergeListing(prev, list) {
   const markets = {}
   let changed = Object.keys(prev).length !== list.length
   for (const m of list) {
-    const old = prev[m.id]
+    const old = own(prev, m.id)
     const same =
       old &&
       old.yesPrice === m.yesPrice &&
@@ -160,7 +165,7 @@ export const useMarketStore = create((set, get) => ({
       let known = addToKnown(s.known, markets, heldIds)
       for (const id of heldIds) {
         const legs = parseParlayId(id)
-        const parlay = known[id]
+        const parlay = own(known, id)
         if (!legs || !parlay) continue
         const prices = legs.map((l) => {
           const m = getMarket(l.id)
@@ -222,12 +227,12 @@ export const useMarketStore = create((set, get) => ({
 
         const listed = new Set(list.map((m) => m.id))
         const missing = heldIds
-          .filter((id) => !listed.has(id) && !isMockId(id) && state.known[id])
+          .filter((id) => !listed.has(id) && !isMockId(id) && own(state.known, id))
           .slice(0, MAX_HELD_MARKET_REFRESH)
         const extras = (
           await Promise.allSettled(
             missing.map((id) => {
-              const prev = state.known[id]
+              const prev = own(state.known, id)
               return fetchMarketById(id, prev.category, { league: prev.league ?? null }).then(
                 (m) => m && { ...m, tags: prev.tags ?? [] },
               )
@@ -275,9 +280,9 @@ export const useMarketStore = create((set, get) => ({
 /** Looks a market up in the live listing, then known markets, then demo data. */
 export function getMarket(id) {
   const s = useMarketStore.getState()
-  return s.markets[id] ?? s.known[id] ?? mockById[id] ?? null
+  return own(s.markets, id) ?? own(s.known, id) ?? own(mockById, id) ?? null
 }
 
-export const isOrphanedDemoId = (id) => isMockId(id) && !mockById[id]
+export const isOrphanedDemoId = (id) => isMockId(id) && !own(mockById, id)
 
-export const useMarket = (id) => useMarketStore((s) => s.markets[id] ?? s.known[id] ?? mockById[id] ?? null)
+export const useMarket = (id) => useMarketStore((s) => own(s.markets, id) ?? own(s.known, id) ?? own(mockById, id) ?? null)

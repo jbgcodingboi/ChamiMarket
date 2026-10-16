@@ -15,6 +15,7 @@ import { useResolutionStore } from './store/resolutionStore.js'
 import { toast } from './store/toastStore.js'
 import { hasEnded } from './utils/curation.js'
 import { formatCurrency, formatSignedCurrency } from './utils/format.js'
+import { own } from './utils/safe.js'
 import { subscribeToKey } from './utils/storage.js'
 
 let booted = false
@@ -74,13 +75,14 @@ function officialResult(id) {
     const resolutions = useResolutionStore.getState().resolutions
     const outcome = parlayOutcome(
       legs,
-      legs.map((l) => resolutions[l.id]?.outcome ?? officialResult(l.id)?.outcome ?? null),
+      legs.map((l) => own(resolutions, l.id)?.outcome ?? officialResult(l.id)?.outcome ?? null),
     )
     return outcome ? { outcome, source: 'parlay', title } : null
   }
-  if (store.quickResults[id]) return { outcome: store.quickResults[id], source: 'quick', title }
+  const quick = own(store.quickResults, id)
+  if (quick) return { outcome: quick, source: 'quick', title }
   if (market?.resolvedOutcome) return { outcome: market.resolvedOutcome, source: 'api', title }
-  const fromSnapshot = useMarketStore.getState().snapshotResolutions[id]
+  const fromSnapshot = own(useMarketStore.getState().snapshotResolutions, id)
   if (fromSnapshot) return { outcome: fromSnapshot, source: 'snapshot', title }
   if (isOrphanedDemoId(id) || (isMockId(id) && market && hasEnded(market))) {
     return { outcome: 'void', source: 'demo', title }

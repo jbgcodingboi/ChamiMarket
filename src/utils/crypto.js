@@ -4,7 +4,9 @@
  * casual snooping of localStorage from revealing passwords, but a client-side
  * account system is not secure for real use.
  */
-const ITERATIONS = 150000
+// OWASP's current guidance for PBKDF2-HMAC-SHA-256. Accounts hashed with an
+// older, lower count are rehashed on their next successful login.
+export const PBKDF2_ITERATIONS = 600000
 
 const toHex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('')
 const fromHex = (hex) => new Uint8Array(hex.match(/.{2}/g).map((h) => parseInt(h, 16)))
@@ -23,7 +25,7 @@ async function derive(password, salt, iterations) {
 
 export async function hashPassword(password) {
   const salt = globalThis.crypto.getRandomValues(new Uint8Array(16))
-  return { salt: toHex(salt), hash: await derive(password, salt, ITERATIONS), iterations: ITERATIONS }
+  return { salt: toHex(salt), hash: await derive(password, salt, PBKDF2_ITERATIONS), iterations: PBKDF2_ITERATIONS }
 }
 
 export async function verifyPassword(password, { salt, hash, iterations }) {
