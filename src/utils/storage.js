@@ -6,6 +6,7 @@
  * the app. When localStorage is unavailable (private mode, disabled cookies,
  * quota exhausted) values are kept in memory for the rest of the session.
  */
+// Kept from the app's original name so existing accounts and portfolios survive the rename.
 const NS = 'redbook:'
 const SCHEMA_KEY = 'schema'
 const SCHEMA_VERSION = 1

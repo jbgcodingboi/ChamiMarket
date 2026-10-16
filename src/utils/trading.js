@@ -150,8 +150,12 @@ export function executeSell(portfolio, { marketId, side, shares, price, now = Da
   }
 }
 
-/** Winning shares pay $1.00 each, losing shares pay $0.00. */
+/**
+ * Winning shares pay $1.00 each, losing shares pay $0.00. A "void" result
+ * refunds the cost basis (no gain or loss).
+ */
 export function settlePosition(position, winningSide) {
+  if (winningSide === 'void') return { payout: roundMoney(position.costBasis), realizedPnl: 0 }
   const payout = position.side === winningSide ? roundMoney(position.shares) : 0
   return { payout, realizedPnl: roundMoney(payout - position.costBasis) }
 }
@@ -181,10 +185,10 @@ export function settleMarket(portfolio, { marketId, outcome, now = Date.now() })
       marketTitle: pos.marketTitle,
       side: pos.side,
       shares: pos.shares,
-      price: pos.side === outcome ? 1 : 0,
+      price: outcome === 'void' ? avgPrice(pos) : pos.side === outcome ? 1 : 0,
       amount: payout,
       realizedPnl,
-      note: `Resolved ${outcome === 'yes' ? 'Yes' : 'No'}`,
+      note: outcome === 'void' ? 'Voided, refunded at cost' : `Resolved ${outcome === 'yes' ? 'Yes' : 'No'}`,
     })
   }
   const payout = roundMoney(payoutCents / 100)

@@ -93,31 +93,71 @@ describe('live data flow', () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     clock += 60000
     vi.setSystemTime(clock)
-    useMarketStore.setState({ status: 'loading', source: null, stale: false, markets: {}, order: [], known: {}, tagIds: null, lastUpdated: null, tick: 0 })
+    useMarketStore.setState({ status: 'loading', source: null, stale: false, markets: {}, order: [], known: {}, tagIds: null, lastUpdated: null, snapshotResolutions: {}, tick: 0 })
   })
   afterEach(() => {
     vi.useRealTimers()
     vi.unstubAllGlobals()
   })
 
-  it('discovers tag ids, loads both categories and goes live', async () => {
+  const event = (id, title, markets, tags = []) => ({ id, title, endDate: '2026-12-01T00:00:00Z', tags, markets })
+
+  it('discovers tags and leagues, curates the feeds and goes live', async () => {
     const urls = []
     vi.stubGlobal('fetch', vi.fn(async (url) => {
       urls.push(url)
-      if (url.includes('/tags/slug/sports')) return jsonResponse({ id: '1', slug: 'sports' })
-      if (url.includes('/tags/slug/politics')) return jsonResponse({ id: '2', slug: 'politics' })
-      if (url.includes('/markets?') && url.includes('tag_id=1')) return jsonResponse([rawMarket(), rawMarket({ id: '9', liquidityNum: 10 })])
-      if (url.includes('/markets?') && url.includes('tag_id=2'))
-        return jsonResponse([rawMarket({ id: '77', question: 'Will Democrats win the House?' })])
+      const u = new URL(url)
+      if (u.pathname === '/tags/slug/sports') return jsonResponse({ id: '1', slug: 'sports' })
+      if (u.pathname === '/tags/slug/politics') return jsonResponse({ id: '2', slug: 'politics' })
+      if (u.pathname === '/sports')
+        return jsonResponse([
+          { sport: 'nfl', series: '10187', tags: '1,450,100639' },
+          { sport: 'epl', series: '10188', tags: '1,82,306,100639,100350' },
+          { sport: 'mls', series: '10189', tags: '1,100350' },
+        ])
+      if (u.pathname === '/events' && u.searchParams.get('series_id') === '10187')
+        return jsonResponse([
+          event('e1', 'Chiefs vs. Bills', [
+            rawMarket({ id: '11', question: 'Chiefs vs. Bills', outcomes: '["Chiefs","Bills"]', volumeNum: 900 }),
+            rawMarket({ id: '12', question: 'Spread: Chiefs (-2.5)', volumeNum: 500 }),
+            rawMarket({ id: '13', question: 'O/U 47.5', volumeNum: 400 }),
+            rawMarket({ id: '14', question: 'Mahomes 300+ yards', volumeNum: 100 }),
+          ]),
+        ])
+      if (u.pathname === '/events' && u.searchParams.get('series_id') === '10188')
+        return jsonResponse([event('e2', 'Arsenal vs. Chelsea', [rawMarket({ id: '21', question: 'Arsenal vs. Chelsea' })])])
+      if (u.pathname === '/events' && u.searchParams.get('tag_id') === '1' && u.searchParams.get('offset') === '0')
+        return jsonResponse([
+          event('e3', 'Inter Miami vs. LA Galaxy', [rawMarket({ id: '31', question: 'Inter Miami vs. LA Galaxy' })], [{ slug: 'soccer', label: 'Soccer' }, { slug: 'mls', label: 'MLS' }]),
+          event('e4', 'NBA Finals', [rawMarket({ id: '41', question: 'Will the Thunder win the 2027 NBA Finals?', endDate: '2027-06-20T00:00:00Z' })]),
+          event('e5', 'Long shot', [rawMarket({ id: '51', question: 'Will the Jets win Super Bowl LXI?', outcomePrices: '["0.01","0.99"]' })]),
+          event('e6', 'Worlds', [rawMarket({ id: '61', question: 'LoL: T1 vs. Gen.G (BO5)' })], [{ slug: 'esports', label: 'Esports' }]),
+          event('e7', 'Long shot game', [rawMarket({ id: '71', question: 'Will the Jets go 17-0?', outcomePrices: '["0.01","0.99"]' })]),
+          event('e1', 'Chiefs vs. Bills', [rawMarket({ id: '11', question: 'Chiefs vs. Bills', outcomes: '["Chiefs","Bills"]', volumeNum: 900 })]),
+        ])
+      if (u.pathname === '/events' && u.searchParams.get('tag_id') === '2')
+        return jsonResponse([
+          event('p1', 'House control', [rawMarket({ id: '77', question: 'Will Democrats win the House?' })]),
+          event('p2', 'Elon tweets', [rawMarket({ id: '78', question: 'Elon Musk # of tweets Oct 17-24?' })]),
+          event('p3', 'Brazil', [rawMarket({ id: '79', question: 'Brazil presidential election: Lula?' })]),
+        ])
+      if (u.pathname === '/events') return jsonResponse([])
       return jsonResponse({}, 404)
     }))
     await useMarketStore.getState().refresh()
     const s = useMarketStore.getState()
     expect(s.source).toBe('live')
     expect(s.tagIds).toEqual({ sports: '1', politics: '2' })
-    expect(s.order).toEqual(['516710', '77'])
-    expect(s.markets['77'].category).toBe('politics')
-    expect(urls.some((u) => u.includes('tag_id=1') && u.includes('closed=false') && u.includes('active=true'))).toBe(true)
+    // 14: 4th market of one event; 31: MLS; 41: ends after June 1 2027; 61: esports; 71: 1% odds;
+    // 78: tweets; 79: Brazil. 51 is a 1% championship future, which is exempt from the odds rule.
+    expect([...s.order].sort()).toEqual(['11', '12', '13', '21', '51', '77'])
+    expect(s.markets['11'].league).toBe('nfl')
+    expect(s.markets['11'].labels).toEqual({ yes: 'Chiefs', no: 'Bills' })
+    expect(s.markets['21'].league).toBe('epl')
+    expect(urls.some((x) => x.includes('series_id=10189'))).toBe(false)
+    const eventsCall = urls.find((x) => x.includes('/events?') && x.includes('tag_id=2'))
+    expect(eventsCall).toContain('closed=false')
+    expect(eventsCall).toContain('end_date_max=2027-06-02')
   })
 
   it('keeps live data (marked stale) when a later refresh fails', async () => {
@@ -165,5 +205,15 @@ describe('live data flow', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
     vi.setSystemTime(Date.now() + 31000)
     await expect(fetchJson('https://ratelimit.test/other')).resolves.toEqual({ ok: true })
+  })
+})
+
+describe('snapshot parsing', () => {
+  it('accepts a valid snapshot and drops bad resolutions', async () => {
+    const { parseSnapshot } = await import('./snapshot.js')
+    const snap = parseSnapshot({ generatedAt: 5, markets: [], resolutions: { a: 'yes', b: 'maybe', c: 'no' } })
+    expect(snap).toEqual({ generatedAt: 5, markets: [], resolutions: { a: 'yes', c: 'no' } })
+    expect(parseSnapshot({ markets: [] })).toBeNull()
+    expect(parseSnapshot('<html>')).toBeNull()
   })
 })

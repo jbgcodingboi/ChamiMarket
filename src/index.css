@@ -22,6 +22,10 @@
   --color-primary-800: #480c0d;
   --color-primary-900: #2e0708;
 
+  /* Logo mark */
+  --color-brand-gold: #f5b82e;
+  --color-brand-red-outline: #d93a45;
+
   /* Surfaces */
   --color-canvas: #0d0d0f;
   --color-surface: #141417;
