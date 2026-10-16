@@ -24,7 +24,7 @@ function Stat({ label, value }) {
 }
 
 /** Headline account metrics. Every value updates live as prices change. */
-export default function PortfolioDashboard({ metrics, resetsUsed }) {
+export default function PortfolioDashboard({ metrics, resetsUsed, games }) {
   return (
     <div className="space-y-3">
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -47,16 +47,20 @@ export default function PortfolioDashboard({ metrics, resetsUsed }) {
           label="Realized PnL"
           hint="Locked-in profit or loss from sales and settlements this run"
           value={formatSignedCurrency(metrics.realizedPnl)}
-          sub="From sells and settlements"
+          sub="From market sells and settlements"
           tone={pnlTone(metrics.realizedPnl)}
         />
       </div>
-      <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <Stat label="Total invested (cost basis)" value={formatCurrency(metrics.invested)} />
         <Stat label="Open positions" value={metrics.openPositions} />
         <Stat
           label="Win rate"
           value={metrics.winRate === null ? 'No closed trades' : `${metrics.winRate.toFixed(0)}% of ${metrics.closedTrades}`}
+        />
+        <Stat
+          label="Games this run"
+          value={games?.rounds ? <span className={pnlTone(games.net)}>{`${formatSignedCurrency(games.net)} · ${games.rounds} round${games.rounds === 1 ? '' : 's'}`}</span> : 'No rounds yet'}
         />
         <Stat label="Resets used" value={resetsUsed} />
       </dl>

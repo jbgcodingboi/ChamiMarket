@@ -1,3 +1,4 @@
+import { isSafeKey } from '../utils/safe.js'
 import { isPlainObject } from '../utils/storage.js'
 import { fetchJson } from './http.js'
 
@@ -14,7 +15,7 @@ export function parseSnapshot(data) {
   const resolutions = {}
   if (isPlainObject(data.resolutions)) {
     for (const [id, outcome] of Object.entries(data.resolutions)) {
-      if (isOutcome(outcome)) resolutions[id] = outcome
+      if (isSafeKey(id) && isOutcome(outcome)) resolutions[id] = outcome
     }
   }
   return { generatedAt: data.generatedAt, markets: data.markets, resolutions }
