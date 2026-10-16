@@ -1,0 +1,37 @@
+name: Chaminade site probe (temporary)
+
+on:
+  push:
+    branches: ['claude/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch candidate pages and feeds
+        run: |
+          mkdir -p probe && cd probe
+          UA='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Safari/537.36'
+          BASE=https://athletics.chaminade-hs.org
+          fetch() { curl -sS -L -A "$UA" -D "$1.headers" -o "$1" --max-time 30 "$2" || echo "failed $2" >> errors.txt; echo "$1 $(wc -c < "$1" 2>/dev/null) $2" >> index.txt; }
+          fetch home.html "$BASE/"
+          fetch calendar.html "$BASE/calendar"
+          fetch football-2026.html "$BASE/sports/football/schedule/2026"
+          fetch football.html "$BASE/sports/football/schedule"
+          fetch soccer.html "$BASE/sports/mens-soccer/schedule"
+          fetch cal-month.json "$BASE/services/responsive-calendar.ashx?type=month&sport=0&location=all&date=10/1/2026"
+          fetch cal-events.json "$BASE/services/responsive-calendar.ashx?type=events&sport=0&location=all&date=10/16/2026"
+          fetch composite.ics "$BASE/calendar.ashx/calendar.ics?sport_id=0"
+          fetch sitemap.xml "$BASE/sitemap.xml"
+          cat index.txt
+          head -c 600 cal-month.json; echo
+          grep -o 'sidearm[a-z-]*' calendar.html | sort | uniq -c | sort -rn | head -20 || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chaminade-probe
+          path: probe
+          retention-days: 3
