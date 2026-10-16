@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import CategoryFilters from '../components/market/CategoryFilters.jsx'
+import { CATEGORIES } from '../config.js'
 import MarketGrid from '../components/market/MarketGrid.jsx'
 import SearchBar from '../components/market/SearchBar.jsx'
 import SortSelect from '../components/market/SortSelect.jsx'
@@ -34,11 +35,9 @@ export default function HomePage() {
   const list = useMemo(() => order.map((id) => markets[id]).filter(Boolean), [order, markets])
   const counts = useMemo(() => {
     const matched = filterMarkets(list, { query })
-    return {
-      all: matched.length,
-      sports: matched.filter((m) => m.category === 'sports').length,
-      politics: matched.filter((m) => m.category === 'politics').length,
-    }
+    const counts = { all: matched.length }
+    for (const c of CATEGORIES) counts[c.id] = matched.filter((m) => m.category === c.id).length
+    return counts
   }, [list, query])
   const visible = useMemo(
     () =>
@@ -91,8 +90,10 @@ export default function HomePage() {
                 }
               >
                 {trimmed
-                  ? `Nothing in ${category === 'all' ? 'Sports or Top Politics' : category === 'sports' ? 'Sports' : 'Top Politics'} matches “${trimmed}”. Try a team, league, race or party.`
-                  : 'There are no open markets in this category right now.'}
+                  ? `Nothing in ${category === 'all' ? 'any category' : CATEGORIES.find((c) => c.id === category).label} matches “${trimmed}”. Try a team, league, race or party.`
+                  : category === 'chaminade'
+                    ? 'No Chaminade games in the next two weeks have markets yet. They appear here as games are added to the athletics calendar.'
+                    : 'There are no open markets in this category right now.'}
               </EmptyState>
             }
           />

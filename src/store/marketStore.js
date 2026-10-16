@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { CATEGORIES, MAX_HELD_MARKET_REFRESH, MAX_KNOWN_MARKETS } from '../config.js'
 import { fetchCatalog, fetchMarketById } from '../services/gamma.js'
+import { fetchHouse } from '../services/house.js'
 import { createMockMarkets, isMockId } from '../services/mockData.js'
 import { fetchSnapshot } from '../services/snapshot.js'
 import { curate } from '../utils/curation.js'
@@ -106,18 +107,41 @@ export const useMarketStore = create((set, get) => ({
   tagIds: null,
   lastUpdated: null,
   snapshotResolutions: {},
+  baseList: [],
+  houseList: [],
+  houseResults: {},
   tick: 0,
 
-  /** Sets the visible listing, re-applying the curation rules. */
+  /**
+   * Sets the visible listing (the main source plus Chaminade house markets),
+   * re-applying the curation rules.
+   */
   setListing(list, extra) {
-    const curated = curate(list)
+    const seen = new Set()
+    const combined = [...list, ...get().houseList].filter((m) => !seen.has(m.id) && seen.add(m.id))
+    const curated = curate(combined)
     set((s) => ({
+      baseList: list,
       markets: mergeListing(extra.source === s.source ? s.markets : {}, curated),
       order: curated.map((m) => m.id),
       status: 'ready',
       tick: s.tick + 1,
       ...extra,
     }))
+  },
+
+  /**
+   * Loads Chaminade house markets and results. They are kept in known markets
+   * too, so positions still have a market to show and settle after kickoff.
+   */
+  async refreshHouse(heldIds = []) {
+    const house = await fetchHouse().catch(() => null)
+    if (!house) return
+    const markets = house.markets.filter(isMarketShape)
+    set((s) => ({ houseList: markets, houseResults: house.results, known: addToKnown(s.known, markets, heldIds) }))
+    writeJSON(KNOWN_KEY, get().known)
+    const s = get()
+    if (s.status === 'ready') s.setListing(s.baseList, { source: s.source })
   },
 
   /** Instant startup from cache (when fresh) without waiting on the network. */
@@ -207,10 +231,7 @@ export const useMarketStore = create((set, get) => ({
     if (snapshot) set({ snapshotResolutions: snapshot.resolutions })
     const cacheFresh = s.lastUpdated && Date.now() - s.lastUpdated < CACHE_MAX_AGE_MS
     if (s.source && s.source !== 'mock' && cacheFresh) {
-      get().setListing(
-        s.order.map((id) => s.markets[id]),
-        { stale: true, source: s.source },
-      )
+      get().setListing(s.baseList, { stale: true, source: s.source })
     } else {
       get().loadMock()
     }

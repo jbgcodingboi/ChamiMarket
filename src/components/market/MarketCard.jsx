@@ -69,7 +69,7 @@ function MarketCard({ market }) {
       )}
 
       <div className="flex items-center justify-between gap-2 text-xs text-muted">
-        <span className="tabular">{formatCompactCurrency(market.volume)} Vol.</span>
+        <span className="tabular">{market.source === 'house' ? 'House odds' : `${formatCompactCurrency(market.volume)} Vol.`}</span>
         <span className="truncate">
           {categoryLabel[market.category]} · Ends {formatDate(market.endDate)}
         </span>

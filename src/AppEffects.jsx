@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { POLL_INTERVAL_MS } from './config.js'
 import { usePolling } from './hooks/usePolling.js'
+import { houseOutcome, isHouseId } from './services/chaminade.js'
 import { isMockId } from './services/mockData.js'
 import { generateSimTrade } from './services/mockTraders.js'
 import { portfolioKey, useAccountStore } from './store/accountStore.js'
@@ -23,7 +24,11 @@ const listing = () => {
 const heldMarketIds = () =>
   Object.values(useAccountStore.getState().portfolio?.positions ?? {}).map((p) => p.marketId)
 
-const refreshMarkets = () => useMarketStore.getState().refresh(heldMarketIds())
+const refreshMarkets = () => {
+  const held = heldMarketIds()
+  useMarketStore.getState().refreshHouse(held)
+  return useMarketStore.getState().refresh(held)
+}
 
 function notifySettled(settled) {
   for (const s of settled) {
@@ -39,14 +44,19 @@ function notifySettled(settled) {
 }
 
 /**
- * The result to settle a held market with, if one is known: from the live
- * API (closed with a clear winner), else from the deployed snapshot. Demo
+ * The result to settle a held market with, if one is known: Chaminade house
+ * markets from the posted final score; Polymarket markets from the live API
+ * (closed with a clear winner), else from the deployed snapshot. Demo
  * markets have no real result, so once they end (or leave the bundled
  * dataset) they are voided and refunded at cost.
  */
 function officialResult(id) {
   const market = getMarket(id)
   const title = market?.title ?? ''
+  if (isHouseId(id)) {
+    const outcome = houseOutcome(id, useMarketStore.getState().houseResults)
+    return outcome ? { outcome, source: 'chaminade', title } : null
+  }
   if (market?.resolvedOutcome) return { outcome: market.resolvedOutcome, source: 'api', title }
   const fromSnapshot = useMarketStore.getState().snapshotResolutions[id]
   if (fromSnapshot) return { outcome: fromSnapshot, source: 'snapshot', title }
