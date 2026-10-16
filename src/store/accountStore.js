@@ -14,7 +14,7 @@ import { own } from '../utils/safe.js'
 import { isPlainObject, readJSON, removeKey, writeJSON } from '../utils/storage.js'
 import { hasEnded } from '../utils/curation.js'
 import { applyResolutions, executeBuy, executeSell, TradeError } from '../utils/trading.js'
-import { displayNameFor, isEmail, isReservedName, validateIdentifier, validatePassword } from '../utils/validation.js'
+import { displayNameFor, isEmail, isReservedName, validateIdentifier, validatePassword, validateUsername } from '../utils/validation.js'
 import { BACKEND_ENABLED, usernameFor } from '../services/backend/config.js'
 import * as backend from '../services/backend/api.js'
 import { useFeedStore } from './feedStore.js'
@@ -160,21 +160,27 @@ export const useAccountStore = create((set, get) => ({
     return settled
   },
 
-  async signUp({ identifier, password, confirm }) {
+  /**
+   * Signs up with a username (no email needed) or with an email plus a
+   * username the player picks, which is what everyone else sees.
+   */
+  async signUp({ identifier, password, confirm, username: picked }) {
     const idError = validateIdentifier(identifier)
     if (idError) throw new AuthError(idError, 'identifier')
+    const withEmail = isEmail(identifier.trim())
+    // Errors about the name go next to the box it was typed in.
+    const nameField = withEmail ? 'username' : 'identifier'
+    if (withEmail) {
+      const nameError = validateUsername(picked)
+      if (nameError) throw new AuthError(nameError, 'username')
+    }
     const pwError = validatePassword(password)
     if (pwError) throw new AuthError(pwError, 'password')
     if (password !== confirm) throw new AuthError('Passwords do not match.', 'confirm')
     if (BACKEND_ENABLED) {
       if (password.length > 72) throw new AuthError('Password must be 72 characters or fewer.', 'password')
-      const username = usernameFor(identifier)
-      if (!(await backend.usernameAvailable(username))) {
-        throw new AuthError(
-          isEmail(identifier.trim()) ? `The name "${username}" from that email is taken. Sign up with a username instead.` : 'That username is taken.',
-          'identifier',
-        )
-      }
+      const username = withEmail ? picked.trim() : usernameFor(identifier)
+      if (!(await backend.usernameAvailable(username))) throw new AuthError('That username is taken.', nameField)
       const user = await backend.signUp({ identifier, password, username })
       seenSettlements = null
       await get().loadRemote(user)
@@ -188,11 +194,9 @@ export const useAccountStore = create((set, get) => ({
         'identifier',
       )
     }
-    const username = displayNameFor(identifier)
-    if (isReservedName(username)) throw new AuthError(`The name "${username}" is reserved. Sign up with a different username.`, 'identifier')
-    if (accounts.some((a) => a.username.toLowerCase() === username.toLowerCase())) {
-      throw new AuthError('That display name is already in use. Try a different username or email.', 'identifier')
-    }
+    const username = withEmail ? picked.trim() : displayNameFor(identifier)
+    if (isReservedName(username)) throw new AuthError('That username is reserved. Pick another.', nameField)
+    if (accounts.some((a) => a.username.toLowerCase() === username.toLowerCase())) throw new AuthError('That username is taken.', nameField)
     const secret = await hashPassword(password)
     const account = {
       id: randomId('u'),

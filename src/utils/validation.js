@@ -25,6 +25,16 @@ export const isReservedName = (name) => {
   return RESERVED.has(key) || OFFICIAL.some((w) => key.includes(w)) || /(^|[^a-z])sim([^a-z]|$)/i.test(name.trim())
 }
 
+/** A username's rules: 3 to 20 letters, numbers or underscores, and not reserved. */
+export function validateUsername(raw) {
+  const value = (raw ?? '').trim()
+  if (!value) return 'Pick a username.'
+  if (value.length < 3) return 'Username must be at least 3 characters.'
+  if (!USERNAME_RE.test(value)) return 'Usernames use 3 to 20 letters, numbers or underscores.'
+  if (isReservedName(value)) return 'That username is reserved. Pick another.'
+  return null
+}
+
 export function validateIdentifier(raw) {
   const value = raw.trim()
   if (!value) return 'Enter a username or email.'
@@ -32,10 +42,7 @@ export function validateIdentifier(raw) {
     if (value.length > 254 || !EMAIL_RE.test(value)) return 'Enter a valid email address.'
     return null
   }
-  if (value.length < 3) return 'Username must be at least 3 characters.'
-  if (!USERNAME_RE.test(value)) return 'Usernames use 3 to 20 letters, numbers or underscores.'
-  if (isReservedName(value)) return 'That username is reserved. Pick another.'
-  return null
+  return validateUsername(value)
 }
 
 export function validatePassword(value) {

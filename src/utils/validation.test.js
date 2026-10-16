@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { CASUAL_HANDLES, PRO_TRADERS } from '../services/mockTraders.js'
-import { displayNameFor, isReservedName, validateIdentifier, validatePassword } from './validation.js'
+import { displayNameFor, isReservedName, validateIdentifier, validatePassword, validateUsername } from './validation.js'
 
 describe('auth validation', () => {
   it('accepts usernames and emails', () => {
@@ -14,6 +14,14 @@ describe('auth validation', () => {
     expect(validateIdentifier('me@nowhere')).toMatch(/valid email/)
     expect(validatePassword('short')).toMatch(/at least 8/)
     expect(validatePassword('longenough')).toBeNull()
+  })
+  it('checks the username picked for an email sign-up', () => {
+    expect(validateUsername('')).toMatch(/Pick a username/)
+    expect(validateUsername(undefined)).toMatch(/Pick a username/)
+    expect(validateUsername('me@x.com')).toMatch(/letters, numbers/)
+    expect(validateUsername('ab')).toMatch(/at least 3/)
+    expect(validateUsername('CryptoOracle')).toMatch(/reserved/)
+    expect(validateUsername(' good_name ')).toBeNull()
   })
   it('derives a display name', () => {
     expect(displayNameFor('me@example.com')).toBe('me')
