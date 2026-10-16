@@ -1,4 +1,4 @@
-export const APP_NAME = 'RedBook Markets'
+export const APP_NAME = 'Chami Market'
 
 export const STARTING_CASH = 100000
 export const RESET_CASH = 50000
