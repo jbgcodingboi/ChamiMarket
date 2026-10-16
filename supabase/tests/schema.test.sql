@@ -39,6 +39,8 @@ select pg_temp.ok((select cash from public.portfolios where user_id = :'alice') 
 select pg_temp.ok((select count(*) from public.equity_snapshots where user_id = :'alice') = 1, 'sign-up records a first equity snapshot');
 select pg_temp.expect_error($$insert into auth.users (email, raw_user_meta_data) values ('c@x.test', '{"username":"ALICE"}')$$, '%duplicate%');
 select pg_temp.expect_error($$insert into auth.users (email, raw_user_meta_data) values ('d@x.test', '{"username":"no spaces"}')$$, '%username%');
+select pg_temp.expect_error($$insert into auth.users (email, raw_user_meta_data) values ('i@x.test', '{"username":"al.ice"}')$$, '%username%');
+select pg_temp.expect_error($$insert into auth.users (email, raw_user_meta_data) values ('j@x.test', '{"username":"jb"}')$$, '%username%');
 select pg_temp.expect_error($$insert into auth.users (email, raw_user_meta_data) values ('e@x.test', '{"username":"CryptoOracle"}')$$, '%reserved%');
 select pg_temp.expect_error($$insert into auth.users (email, raw_user_meta_data) values ('f@x.test', '{"username":"Chaminade_Admin"}')$$, '%reserved%');
 select pg_temp.expect_error($$insert into auth.users (email, raw_user_meta_data) values ('g@x.test', '{"username":"quietkeIIy"}')$$, '%reserved%');
@@ -428,6 +430,28 @@ reset role;
 select pg_temp.ok((select encrypted_password = extensions.crypt('brand new password', encrypted_password) from auth.users where id = :'bob'),
   'the locked attempt did not change the password');
 
+-- Feedback ------------------------------------------------------------------------
+reset role;
+set role anon;
+select set_config('request.jwt.claim.sub', '', false);
+select pg_temp.ok((public.submit_feedback('suggestion', '  Add a  hockey'||chr(8203)||' tab please'||chr(7)||'  ', '#/games?x=<b>') ->> 'ok')::boolean, 'guests can send feedback');
+select pg_temp.ok(public.submit_feedback('rant', 'hello there', null) ->> 'error' like '%type%', 'feedback needs a known type');
+select pg_temp.ok(public.submit_feedback('bug', ' a ', null) ->> 'error' like '%more%', 'and a real message');
+select pg_temp.ok(public.submit_feedback('bug', repeat('x', 1001), null) ->> 'error' like '%1,000%', 'and not an essay');
+select pg_temp.ok(public.submit_feedback(null, 'hello there', null) ->> 'error' like '%type%', 'a missing type is an answer, not an error');
+select pg_temp.expect_error($$select count(*) from public.feedback$$, '%permission denied%');
+set role authenticated;
+select set_config('request.jwt.claim.sub', :'bob', false);
+select pg_temp.expect_error($$select count(*) from public.feedback$$, '%permission denied%');
+do $$ declare i int; begin
+  for i in 1..5 loop perform public.submit_feedback('bug', 'Bug number ' || i, '#/'); end loop;
+end $$;
+select pg_temp.ok(public.submit_feedback('bug', 'one too many', null) ->> 'error' like '%for now%', 'players can send 5 an hour');
+reset role;
+select pg_temp.ok((select message = 'Add a hockey tab please' and page = '#/games?x=b' and user_id is null from public.feedback order by id limit 1),
+  'messages are tidied, pages stripped of odd characters, and guests stay anonymous');
+select pg_temp.ok((select count(*) = 5 and bool_and(username = 'bob') from public.feedback where user_id = :'bob'), 'player feedback carries their username');
+
 -- Deleting an account ----------------------------------------------------------
 select jsonb_array_length(public.leaderboard()) as players_before \gset
 set role authenticated;
@@ -445,6 +469,7 @@ select pg_temp.ok(not exists (select 1 from auth.users where id = :'bob')
   and not exists (select 1 from public.positions where user_id = :'bob')
   and not exists (select 1 from public.activity where user_id = :'bob')
   and not exists (select 1 from public.recovery_codes where user_id = :'bob')
+  and not exists (select 1 from public.feedback where user_id = :'bob')
   and not exists (select 1 from private.rate_limits where user_id = :'bob'), 'every row tied to the account is gone');
 select pg_temp.ok(jsonb_array_length(public.leaderboard()) = :players_before - 1
   and not exists (select 1 from jsonb_array_elements(public.leaderboard()) r where r ->> 'name' = 'bob'), 'the player leaves the leaderboard');

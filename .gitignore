@@ -28,3 +28,7 @@ public/data/
 .env
 .env.local
 .env.*.local
+
+# Private keys (e.g. feedback report keys)
+*.key
+*.pem

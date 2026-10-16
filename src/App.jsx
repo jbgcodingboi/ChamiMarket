@@ -12,6 +12,7 @@ import Toaster from './components/ui/Toaster.jsx'
 import ScrollToTop from './components/layout/ScrollToTop.jsx'
 import CornerNotice from './components/legal/CornerNotice.jsx'
 import DeleteAccountModal from './components/DeleteAccountModal.jsx'
+import FeedbackTab from './components/FeedbackTab.jsx'
 import TermsGate from './components/legal/TermsGate.jsx'
 
 const HomePage = lazy(() => import('./pages/HomePage.jsx'))
@@ -78,6 +79,7 @@ export default function App() {
       <RecoveryCodeModal />
       <Toaster />
       <CornerNotice />
+      <FeedbackTab />
       <TermsGate />
     </HashRouter>
   )
