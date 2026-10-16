@@ -1,10 +1,10 @@
 import {
-  CATEGORIES,
   GAMMA_BASE,
   MARKETS_PER_EVENT,
   MIN_LIQUIDITY,
   POLITICS_MARKET_LIMIT,
   SPORTS_MARKET_LIMIT,
+  TAGGED_CATEGORIES,
 } from '../config.js'
 import { curate, END_DATE_CUTOFF, TOP_SOCCER_LEAGUES } from '../utils/curation.js'
 import { fetchJson, HttpError } from './http.js'
@@ -26,7 +26,7 @@ const tagIdFrom = (tag) => {
 export async function discoverTagIds() {
   const result = {}
   await Promise.all(
-    CATEGORIES.map(async (cat) => {
+    TAGGED_CATEGORIES.map(async (cat) => {
       try {
         const tag = await fetchJson(`${GAMMA_BASE}/tags/slug/${cat.tagSlug}`)
         const id = tagIdFrom(tag)
@@ -36,7 +36,7 @@ export async function discoverTagIds() {
       }
     }),
   )
-  const missing = CATEGORIES.filter((c) => !result[c.id])
+  const missing = TAGGED_CATEGORIES.filter((c) => !result[c.id])
   if (missing.length) {
     const tags = await fetchJson(`${GAMMA_BASE}/tags?limit=1000`)
     if (!Array.isArray(tags)) throw new HttpError('Malformed tag list')
@@ -46,7 +46,7 @@ export async function discoverTagIds() {
       if (id) result[cat.id] = id
     }
   }
-  if (!CATEGORIES.every((c) => result[c.id])) throw new HttpError('Could not discover category tags')
+  if (!TAGGED_CATEGORIES.every((c) => result[c.id])) throw new HttpError('Could not discover category tags')
   return result
 }
 

@@ -11,6 +11,7 @@ import Tabs from '../ui/Tabs.jsx'
 import MarketAvatar from './MarketAvatar.jsx'
 import MobileTradeBar from './MobileTradeBar.jsx'
 import OrderBook from './OrderBook.jsx'
+import ClosesIn from './ClosesIn.jsx'
 import OutcomeBadge from './OutcomeBadge.jsx'
 import PositionSummary from './PositionSummary.jsx'
 import PriceChart from './PriceChart.jsx'
@@ -58,8 +59,10 @@ export default function MarketDetail({ market, side, onSideChange }) {
             <MarketAvatar market={market} size="size-14" />
             <div className="min-w-0">
               <p className="text-xs text-muted">
-                {categoryLabel[market.category]} · {formatCompactCurrency(market.volume)} Vol. · Ends{' '}
-                {formatDate(market.endDate)}
+                {categoryLabel[market.category]} ·{' '}
+                {market.source === 'house' ? 'House odds' : `${formatCompactCurrency(market.volume)} Vol.`} ·{' '}
+                {market.source === 'house' ? 'Closes' : 'Ends'} {formatDate(market.endDate)}
+                <ClosesIn endDate={market.endDate} className="ml-2" />
                 {market.source === 'mock' && <span className="ml-2 rounded bg-surface-3 px-1.5 py-0.5">Demo market</span>}
               </p>
               <h1 className="mt-1 text-xl leading-tight font-bold text-balance sm:text-2xl">{market.title}</h1>
@@ -97,6 +100,20 @@ export default function MarketDetail({ market, side, onSideChange }) {
               ) : (
                 <div className="space-y-3 text-sm leading-relaxed text-muted">
                   {market.eventTitle && <p className="font-medium text-fg">{market.eventTitle}</p>}
+                  {market.source === 'house' && (
+                    <p>
+                      Schedule and results:{' '}
+                      <a
+                        href="https://athletics.chaminade-hs.org/calendar"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-primary-300 hover:underline"
+                      >
+                        athletics.chaminade-hs.org
+                      </a>
+                      . Trading closes at the scheduled start, and the market settles once the final score is posted.
+                    </p>
+                  )}
                   <p className="whitespace-pre-line">{market.description || 'No rules were provided for this market.'}</p>
                   <p className="text-xs text-subtle">
                     Ends {formatDate(market.endDate)}. Markets settle automatically from the official result:

@@ -2,9 +2,11 @@ import { memo } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { CATEGORIES } from '../../config.js'
 import { flashClass, usePriceFlash } from '../../hooks/usePriceFlash.js'
+import { useClock } from '../../store/clockStore.js'
 import { useResolution } from '../../store/resolutionStore.js'
 import { formatCents, formatCompactCurrency, formatDate, formatProbability } from '../../utils/format.js'
 import MarketAvatar from './MarketAvatar.jsx'
+import ClosesIn, { DAY_MS } from './ClosesIn.jsx'
 import OutcomeBadge from './OutcomeBadge.jsx'
 import ProbabilityGauge from './ProbabilityGauge.jsx'
 
@@ -26,6 +28,18 @@ function QuickButton({ side, label, price, onClick, disabled }) {
       <span className="truncate">{label}</span>
       <span className="tabular">{formatProbability(price)}</span>
     </button>
+  )
+}
+
+/** Category and close date, unless the countdown is already showing. */
+function EndsLabel({ market }) {
+  const now = useClock((s) => s.now)
+  const left = Date.parse(market.endDate) - now
+  if (left > 0 && left <= DAY_MS) return <span className="truncate">{categoryLabel[market.category]}</span>
+  return (
+    <span className="truncate">
+      {categoryLabel[market.category]} · {market.source === 'house' ? 'Closes' : 'Ends'} {formatDate(market.endDate)}
+    </span>
   )
 }
 
@@ -69,10 +83,9 @@ function MarketCard({ market }) {
       )}
 
       <div className="flex items-center justify-between gap-2 text-xs text-muted">
-        <span className="tabular">{formatCompactCurrency(market.volume)} Vol.</span>
-        <span className="truncate">
-          {categoryLabel[market.category]} · Ends {formatDate(market.endDate)}
-        </span>
+        <span className="tabular">{market.source === 'house' ? 'House odds' : `${formatCompactCurrency(market.volume)} Vol.`}</span>
+        <ClosesIn endDate={market.endDate} />
+        <EndsLabel market={market} />
       </div>
     </article>
   )
