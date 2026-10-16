@@ -22,6 +22,7 @@ import { parlayOutcome, parseParlayId } from '../src/services/quick/parlays.js'
 import { buildStockMarkets, parseStockId, stockOutcome } from '../src/services/quick/stocks.js'
 import { buildWeatherMarkets, fetchClimateReports, fetchForecast, parseWeatherId, STATIONS, weatherOutcome } from '../src/services/quick/weather.js'
 import { curate } from '../src/utils/curation.js'
+import { setRequestBudget } from '../src/services/http.js'
 import { fetchChaminade, fetchStockCloses, USER_AGENT } from './sources.mjs'
 
 const BASE = process.env.SUPABASE_URL?.trim().replace(/\/+$/, '')
@@ -67,6 +68,8 @@ async function selectIn(table, fields, column, ids) {
 const settled = (p) => (p.status === 'fulfilled' ? p.value : null)
 const now = Date.now()
 const log = (msg) => console.log(msg)
+// This job runs on its own runner, so it can make more requests per host than a browser tab.
+setRequestBudget(150)
 
 // 1. Markets -------------------------------------------------------------------
 const [catalog, house, coinData, forecasts, closes] = await Promise.allSettled([
@@ -98,12 +101,25 @@ const listed = new Set([...listing, ...quick].map((m) => m.id))
 const lookups = [...new Set([...held.filter((id) => !parseParlayId(id)), ...legIds])]
 const heldMeta = await selectIn('markets', 'id,category,league', 'id', lookups)
 const metaById = new Map(heldMeta.map((m) => [m.id, m]))
+// A few at a time, so a long list of held markets stays polite to Gamma.
+async function mapLimit(items, limit, fn) {
+  const out = []
+  let next = 0
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++
+      out[i] = await fn(items[i]).then(
+        (value) => ({ status: 'fulfilled', value }),
+        (reason) => ({ status: 'rejected', reason }),
+      )
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
+  return out
+}
+const extraIds = lookups.filter((id) => /^\d+$/.test(id) && !listed.has(id))
 const extra = (
-  await Promise.allSettled(
-    lookups
-      .filter((id) => /^\d+$/.test(id) && !listed.has(id))
-      .map((id) => fetchMarketById(id, metaById.get(id)?.category ?? 'sports', { league: metaById.get(id)?.league ?? null })),
-  )
+  await mapLimit(extraIds, 5, (id) => fetchMarketById(id, metaById.get(id)?.category ?? 'sports', { league: metaById.get(id)?.league ?? null }))
 )
   .map(settled)
   .filter(Boolean)
@@ -156,12 +172,21 @@ const legOutcome = new Map(known.map((r) => [r.market_id, r.outcome]))
 for (const id of held) {
   const legs = parseParlayId(id)
   if (!legs) continue
-  add(id, parlayOutcome(legs, legs.map((l) => results[l.id]?.outcome ?? legOutcome.get(l.id) ?? null)), 'parlay')
+  add(id, parlayOutcome(legs, legs.map((l) => legOutcome.get(l.id) ?? results[l.id]?.outcome ?? null)), 'parlay')
 }
-const heldSet = new Set(held)
+// Leg results are stored too, so a parlay can still settle after a leg's source stops reporting it.
+const heldSet = new Set([...held, ...legIds])
 const toSettle = Object.fromEntries(Object.entries(results).filter(([id]) => heldSet.has(id)))
-const settledCount = Object.keys(toSettle).length ? await rpc('sync_resolutions', { p_results: toSettle }) : 0
-log(`results: ${held.length} held markets checked, ${Object.keys(toSettle).length} resolved, ${settledCount} positions settled`)
+let failed = false
+try {
+  const settledCount = Object.keys(toSettle).length ? await rpc('sync_resolutions', { p_results: toSettle }) : 0
+  log(`results: ${held.length} held markets checked, ${Object.keys(toSettle).length} resolved, ${settledCount} positions settled`)
+} catch (err) {
+  // Snapshots still run below; the job is marked failed at the end.
+  console.error(`settling failed: ${err.message}`)
+  failed = true
+}
 
 // 3. Equity snapshots --------------------------------------------------------
 log(`snapshots: ${await rpc('sync_snapshots')} players`)
+if (failed) process.exitCode = 1

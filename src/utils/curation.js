@@ -4,6 +4,7 @@
  *
  * A market is listed only when it:
  *  - has an end date that is still in the future and no later than June 1, 2027
+ *    (or about seven months out, once that is later, so the listing never runs dry)
  *  - is priced between 6% and 95%, unless it is a ceasefire, alien, political
  *    agreement or championship-style market (those are listed at any price)
  *  - is not esports
@@ -11,6 +12,8 @@
  *  - for politics: is not a tweet/mention/meme market and is relevant to a US audience
  */
 export const END_DATE_CUTOFF = Date.parse('2027-06-02T00:00:00Z')
+const CUTOFF_HORIZON_MS = 210 * 864e5
+export const endDateCutoff = (now = Date.now()) => Math.max(END_DATE_CUTOFF, now + CUTOFF_HORIZON_MS)
 export const MIN_PROBABILITY = 0.06
 export const MAX_PROBABILITY = 0.95
 
@@ -157,7 +160,7 @@ export function exclusionReason(m, now = Date.now()) {
   const end = endTime(m)
   if (!Number.isFinite(end)) return 'no-end-date'
   if (end <= now) return 'ended'
-  if (end >= END_DATE_CUTOFF) return 'ends-after-cutoff'
+  if (end >= endDateCutoff(now)) return 'ends-after-cutoff'
   if (m.category === 'sports' && isEsports(m)) return 'esports'
   if (m.category === 'sports' && isSoccer(m) && !isTopSoccer(m)) return 'minor-soccer'
   if (m.category === 'politics') {

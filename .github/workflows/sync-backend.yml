@@ -33,9 +33,7 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
-          cache: npm
-      - if: env.CONFIGURED == 'true'
-        run: npm ci --ignore-scripts
+      # No npm install: the script only uses Node built-ins and the app's own source files.
       - if: env.CONFIGURED == 'true'
         run: node scripts/sync-backend.mjs
         env:

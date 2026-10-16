@@ -37,7 +37,9 @@ select id as alice from auth.users where email = 'alice@users.test' \gset
 select id as bob from auth.users where email = 'bob@example.com' \gset
 select pg_temp.ok((select cash from public.portfolios where user_id = :'alice') = 100000, 'new accounts start with $100,000');
 select pg_temp.ok((select count(*) from public.equity_snapshots where user_id = :'alice') = 1, 'sign-up records a first equity snapshot');
-select pg_temp.expect_error($$insert into auth.users (email, raw_user_meta_data) values ('c@x.test', '{"username":"ALICE"}')$$, '%duplicate%');
+select pg_temp.expect_error($$insert into auth.users (email, raw_user_meta_data) values ('c@x.test', '{"username":"ALICE"}')$$, '%taken%');
+select pg_temp.expect_error($$insert into auth.users (email, raw_user_meta_data) values ('k@x.test', '{"username":"aIice"}')$$, '%taken%');
+select pg_temp.ok(not public.username_available('AL1CE') and public.username_available('alicia'), 'look-alikes of a taken name are taken too');
 select pg_temp.expect_error($$insert into auth.users (email, raw_user_meta_data) values ('d@x.test', '{"username":"no spaces"}')$$, '%username%');
 select pg_temp.expect_error($$insert into auth.users (email, raw_user_meta_data) values ('i@x.test', '{"username":"al.ice"}')$$, '%username%');
 select pg_temp.expect_error($$insert into auth.users (email, raw_user_meta_data) values ('j@x.test', '{"username":"jb"}')$$, '%username%');
@@ -353,6 +355,13 @@ begin
   perform pg_temp.ok((public.get_portfolio() ->> 'cash')::numeric = before - staked + back,
     format('60 auto rounds balance to the cent (staked %s, returned %s)', staked, back));
   perform pg_temp.expect_error($q$select public.mines_auto(5, 5, array[1, 1])$q$, '%different tiles%');
+  -- A bad tile after a safe one must not undo the round (that would test tiles for free).
+  before := (public.get_portfolio() ->> 'cash')::numeric;
+  i := (public.fair_state() ->> 'nonce')::int;
+  perform pg_temp.expect_error($q$select public.mines_auto(5, 23, array[0, 99])$q$, '%from 0 to 24%');
+  perform pg_temp.expect_error($q$select public.mines_auto(5, 23, array[0, -1])$q$, '%from 0 to 24%');
+  perform pg_temp.ok((public.get_portfolio() ->> 'cash')::numeric = before and (public.fair_state() ->> 'nonce')::int = i,
+    'mines auto rejects bad tiles before any round starts');
   perform pg_temp.expect_error($q$select public.chicken_auto(5, 'hard', 23)$q$, '%from 1 to 22%');
 
   f := public.fair_rotate('lucky-7');
@@ -374,6 +383,13 @@ end $$;
 -- Portfolio JSON and the leaderboard -----------------------------------------
 select pg_temp.ok((public.get_portfolio() -> 'games' ->> 'runRounds')::int = 300 + 25 + 5 + 150 + 2 + 2 + 60 + 40, 'every game round is recorded');
 select pg_temp.ok((public.get_portfolio() -> 'games' -> 'stats' -> 'blackjack' ->> 'rounds')::int = 155, 'per-game stats');
+reset role;
+select pg_temp.ok(not exists (
+  select 1 from (select game, count(*) n, sum(staked) w, sum(net) net, max(net) best from public.game_rounds where user_id = :'alice' group by game) g
+  full join (select game, sum(rounds) n, sum(wagered) w, sum(net) net, max(best) best from private.game_totals where user_id = :'alice' group by game) t using (game)
+  where g.n is distinct from t.n or g.w is distinct from t.w or g.net is distinct from t.net or g.best is distinct from t.best),
+  'running game totals match the rounds played');
+set role authenticated;
 select pg_temp.ok(jsonb_array_length(public.leaderboard()) = 2, 'the leaderboard lists every player');
 select pg_temp.ok((select (r ->> 'pnl')::numeric = (r ->> 'marketPnl')::numeric + (r -> 'games' ->> 'net')::numeric
   from jsonb_array_elements(public.leaderboard()) r where r ->> 'name' = 'alice'), 'markets PnL plus games net equals total PnL');

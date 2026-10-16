@@ -39,14 +39,15 @@ if (!PLAYER || !/^[A-Za-z0-9_.+-]{1,20}$/.test(PLAYER)) stop('Give a valid usern
 // Legacy service_role keys are JWTs and go in both headers; newer sb_secret_ keys go in apikey only.
 const headers = { apikey: KEY, 'Content-Type': 'application/json', ...(KEY.startsWith('eyJ') && { Authorization: `Bearer ${KEY}` }) }
 
-async function call(method, path) {
+async function call(method, path, label) {
   const res = await fetch(`${BASE}${path}`, { method, headers, signal: AbortSignal.timeout(15000) })
   const text = await res.text()
-  if (!res.ok) stop(`${method} ${path.split('?')[0]}: HTTP ${res.status} ${text.slice(0, 300)}`)
+  // The label keeps the player's id out of the public log.
+  if (!res.ok) stop(`${label}: HTTP ${res.status}`)
   return text ? JSON.parse(text) : null
 }
 
-const findProfile = async () => (await call('GET', `/rest/v1/profiles?select=id,username&username=eq.${encodeURIComponent(PLAYER)}`))[0] ?? null
+const findProfile = async () => (await call('GET', `/rest/v1/profiles?select=id,username&username=eq.${encodeURIComponent(PLAYER)}`, 'Finding the player'))[0] ?? null
 
 const profile = await findProfile()
 if (!profile) {
@@ -55,9 +56,9 @@ if (!profile) {
   process.exit(0)
 }
 console.log('Deleting the player and all of their data...')
-await call('DELETE', `/auth/v1/admin/users/${profile.id}`)
+await call('DELETE', `/auth/v1/admin/users/${profile.id}`, 'Deleting the login')
 
 if (await findProfile()) stop('The player is still there. Check the Supabase dashboard.')
-const leftovers = await call('GET', `/rest/v1/portfolios?select=user_id&user_id=eq.${profile.id}`)
+const leftovers = await call('GET', `/rest/v1/portfolios?select=user_id&user_id=eq.${profile.id}`, 'Checking for leftovers')
 if (leftovers.length) stop('The login is gone but a portfolio remains. Check the Supabase dashboard.')
 console.log('Done: the player is deleted, along with their portfolio, trades, games, feedback and leaderboard entries.')

@@ -23,8 +23,17 @@ async function remote(call) {
   return res.round
 }
 
+const isTileList = (v) => Array.isArray(v) && v.every((t) => Number.isInteger(t) && t >= 0 && t <= 24)
+/** A stored round with the fields the views read, so edited or stale storage can't crash the page. */
+const ROUND_SHAPES = {
+  mines: (s) => isTileList(s.revealed) && isTileList(s.positions) && Number.isInteger(s.mines) && s.mines >= 1 && s.mines <= 24,
+  chicken: (s) => Boolean(chicken.DIFFICULTIES[s.difficulty]) && Number.isInteger(s.lane) && s.lane >= 0,
+}
+const isRound = (game) => (s) =>
+  isPlainObject(s) && (s.phase === 'playing' || s.phase === 'done') && Number.isFinite(s.bet) && ROUND_SHAPES[game](s)
+
 const load = (game) => {
-  const s = readJSON(roundKey(game), isPlainObject, null)
+  const s = readJSON(roundKey(game), isRound(game), null)
   // A balance reset ends the run, so a round from before it is void.
   if (s?.phase === 'playing' && s.run !== useAccountStore.getState().portfolio?.run) return null
   return s
@@ -118,7 +127,9 @@ export const minesApi = {
   /** Opens the tiles in order and cashes out if they are all safe. */
   async auto({ amount, mines: count, tiles }) {
     if (BACKEND_ENABLED) return remote(() => backend.minesAuto({ amount, mines: count, tiles }))
-    if (!tiles.length || tiles.length > 25 - count || new Set(tiles).size !== tiles.length) throw new Error(`Pick between 1 and ${25 - count} different tiles.`)
+    if (!tiles.length || tiles.length > 25 - count || new Set(tiles).size !== tiles.length || !isTileList(tiles)) {
+      throw new Error(`Pick between 1 and ${25 - count} different tiles from 0 to 24.`)
+    }
     let s = await minesBegin(amount, count)
     for (const t of tiles) {
       s = minesPick(s, t)

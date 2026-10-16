@@ -1,0 +1,26 @@
+name: Keep schedules on
+
+# GitHub turns off scheduled workflows in a public repository after 60 days
+# without commits. Re-enabling them through the API restarts that clock, so the
+# price sync and the scheduled deploy keep running on a quiet month.
+on:
+  schedule:
+    - cron: '17 6 1,15 * *'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      actions: write
+    steps:
+      - run: |
+          for wf in sync-backend.yml deploy-pages.yml keepalive.yml; do
+            gh api -X PUT "repos/$REPO/actions/workflows/$wf/enable" && echo "$wf on"
+          done
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
