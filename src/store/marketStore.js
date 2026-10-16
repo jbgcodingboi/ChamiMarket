@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { CATEGORIES, MAX_HELD_MARKET_REFRESH, MAX_KNOWN_MARKETS } from '../config.js'
 import { fetchCatalog, fetchMarketById } from '../services/gamma.js'
 import { fetchHouse } from '../services/house.js'
+import { loadQuick, parseParlayId } from '../services/quick/index.js'
 import { createMockMarkets, isMockId } from '../services/mockData.js'
 import { fetchSnapshot } from '../services/snapshot.js'
 import { curate } from '../utils/curation.js'
@@ -110,6 +111,8 @@ export const useMarketStore = create((set, get) => ({
   baseList: [],
   houseList: [],
   houseResults: {},
+  quickList: [],
+  quickResults: {},
   tick: 0,
 
   /**
@@ -118,7 +121,7 @@ export const useMarketStore = create((set, get) => ({
    */
   setListing(list, extra) {
     const seen = new Set()
-    const combined = [...list, ...get().houseList].filter((m) => !seen.has(m.id) && seen.add(m.id))
+    const combined = [...list, ...get().houseList, ...get().quickList].filter((m) => !seen.has(m.id) && seen.add(m.id))
     const curated = curate(combined)
     set((s) => ({
       baseList: list,
@@ -139,6 +142,37 @@ export const useMarketStore = create((set, get) => ({
     if (!house) return
     const markets = house.markets.filter(isMarketShape)
     set((s) => ({ houseList: markets, houseResults: house.results, known: addToKnown(s.known, markets, heldIds) }))
+    writeJSON(KNOWN_KEY, get().known)
+    const s = get()
+    if (s.status === 'ready') s.setListing(s.baseList, { source: s.source })
+  },
+
+  /**
+   * Rebuilds Quick markets (crypto, weather, stocks, parlays), settles held
+   * Quick markets and tonight's pro games, and reprices held parlays from
+   * their legs' current prices.
+   */
+  async refreshQuick(heldIds = []) {
+    const s0 = get()
+    const listing = curate([...s0.baseList, ...s0.houseList])
+    const { markets, results } = await loadQuick({ now: Date.now(), listing, held: new Set(heldIds), lookup: getMarket })
+    set((s) => {
+      let known = addToKnown(s.known, markets, heldIds)
+      for (const id of heldIds) {
+        const legs = parseParlayId(id)
+        const parlay = known[id]
+        if (!legs || !parlay) continue
+        const prices = legs.map((l) => {
+          const m = getMarket(l.id)
+          return m ? (l.side === 'yes' ? m.yesPrice : m.noPrice) : null
+        })
+        if (prices.every((p) => p !== null)) {
+          const p = Math.round(prices.reduce((a, b) => a * b, 1) * 1e4) / 1e4
+          known = { ...known, [id]: { ...parlay, yesPrice: p, noPrice: Math.round((1 - p) * 1e4) / 1e4 } }
+        }
+      }
+      return { quickList: markets, quickResults: { ...s.quickResults, ...results }, known }
+    })
     writeJSON(KNOWN_KEY, get().known)
     const s = get()
     if (s.status === 'ready') s.setListing(s.baseList, { source: s.source })

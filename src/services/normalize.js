@@ -32,6 +32,13 @@ const toDateString = (v) => {
   return Number.isNaN(d.getTime()) ? null : d.toISOString()
 }
 
+/** Gamma's gameStartTime looks like "2026-10-18 17:00:00+00"; normalize it to ISO. */
+const toGameStart = (v) => {
+  if (typeof v !== 'string' || !v.trim()) return null
+  const iso = v.trim().replace(' ', 'T').replace(/([+-]\d{2})$/, '$1:00')
+  return toDateString(iso)
+}
+
 const toImage = (v) => (typeof v === 'string' && /^https:\/\//.test(v) ? v : null)
 
 const cleanText = (v, max = 4000) => (typeof v === 'string' ? v.trim().slice(0, max) : '')
@@ -96,6 +103,7 @@ export function normalizeGammaMarket(raw, category, { league = null } = {}) {
     liquidity: toNumber(raw.liquidityNum) ?? toNumber(raw.liquidity) ?? 0,
     endDate: toDateString(raw.endDate) || toDateString(event?.endDate),
     createdAt: toDateString(raw.createdAt) || toDateString(raw.startDate),
+    gameStart: toGameStart(raw.gameStartTime),
     active: raw.active !== false,
     closed,
     acceptingOrders: raw.acceptingOrders !== false,

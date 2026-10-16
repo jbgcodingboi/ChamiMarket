@@ -2,6 +2,8 @@ import { useEffect } from 'react'
 import { POLL_INTERVAL_MS } from './config.js'
 import { usePolling } from './hooks/usePolling.js'
 import { houseOutcome, isHouseId } from './services/chaminade.js'
+import { parlayOutcome } from './services/quick/parlays.js'
+import { parseParlayId } from './services/quick/index.js'
 import { isMockId } from './services/mockData.js'
 import { generateSimTrade } from './services/mockTraders.js'
 import { portfolioKey, useAccountStore } from './store/accountStore.js'
@@ -21,13 +23,19 @@ const listing = () => {
   return order.map((id) => markets[id]).filter(Boolean)
 }
 
-const heldMarketIds = () =>
-  Object.values(useAccountStore.getState().portfolio?.positions ?? {}).map((p) => p.marketId)
+/** Markets the active account holds, plus the legs of any parlay it holds. */
+const heldMarketIds = () => {
+  const ids = Object.values(useAccountStore.getState().portfolio?.positions ?? {}).map((p) => p.marketId)
+  const legs = ids.flatMap((id) => parseParlayId(id)?.map((l) => l.id) ?? [])
+  return [...new Set([...ids, ...legs])]
+}
 
-const refreshMarkets = () => {
+const refreshMarkets = async () => {
   const held = heldMarketIds()
-  useMarketStore.getState().refreshHouse(held)
-  return useMarketStore.getState().refresh(held)
+  const store = useMarketStore.getState()
+  store.refreshHouse(held)
+  await store.refresh(held)
+  await useMarketStore.getState().refreshQuick(held).catch(() => {})
 }
 
 function notifySettled(settled) {
@@ -45,18 +53,31 @@ function notifySettled(settled) {
 
 /**
  * The result to settle a held market with, if one is known: Chaminade house
- * markets from the posted final score; Polymarket markets from the live API
- * (closed with a clear winner), else from the deployed snapshot. Demo
+ * markets from the posted final score; parlays from their legs; Quick markets
+ * and tonight's pro games from their live sources (Coinbase, NWS, closing
+ * prices, ESPN); Polymarket markets from the live API (closed with a clear
+ * winner), else from the deployed snapshot. Demo
  * markets have no real result, so once they end (or leave the bundled
  * dataset) they are voided and refunded at cost.
  */
 function officialResult(id) {
   const market = getMarket(id)
   const title = market?.title ?? ''
+  const store = useMarketStore.getState()
   if (isHouseId(id)) {
-    const outcome = houseOutcome(id, useMarketStore.getState().houseResults)
+    const outcome = houseOutcome(id, store.houseResults)
     return outcome ? { outcome, source: 'chaminade', title } : null
   }
+  const legs = parseParlayId(id)
+  if (legs) {
+    const resolutions = useResolutionStore.getState().resolutions
+    const outcome = parlayOutcome(
+      legs,
+      legs.map((l) => resolutions[l.id]?.outcome ?? officialResult(l.id)?.outcome ?? null),
+    )
+    return outcome ? { outcome, source: 'parlay', title } : null
+  }
+  if (store.quickResults[id]) return { outcome: store.quickResults[id], source: 'quick', title }
   if (market?.resolvedOutcome) return { outcome: market.resolvedOutcome, source: 'api', title }
   const fromSnapshot = useMarketStore.getState().snapshotResolutions[id]
   if (fromSnapshot) return { outcome: fromSnapshot, source: 'snapshot', title }

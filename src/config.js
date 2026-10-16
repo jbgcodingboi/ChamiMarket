@@ -20,6 +20,8 @@ export const CATEGORIES = [
   { id: 'politics', label: 'Top Politics', tagSlug: 'politics' },
   // House markets on Chaminade High School (Mineola, NY) games, built by the snapshot job.
   { id: 'chaminade', label: 'Chaminade', tagSlug: null },
+  // House-priced short markets: crypto windows, local weather, stocks and daily parlays.
+  { id: 'quick', label: 'Quick', tagSlug: null },
 ]
 
 /** Categories whose markets come from Polymarket tags. */

@@ -9,7 +9,10 @@
  *
  * Pure functions only; the scheduled snapshot job does the fetching.
  */
-import { clamp, roundPrice } from '../utils/math.js'
+import { clamp, normalCdf, roundPrice } from '../utils/math.js'
+import { easternToUtc } from '../utils/time.js'
+
+export { easternToUtc, normalCdf }
 
 export const CHAMINADE_SITE = 'https://athletics.chaminade-hs.org'
 export const CALENDAR_ENDPOINT = `${CHAMINADE_SITE}/services/responsive-calendar.ashx`
@@ -44,30 +47,6 @@ const NON_HEAD_TO_HEAD =
 
 export const modelFor = (sport) => SPORT_MODELS.find((m) => m.match.test(sport.toLowerCase())) ?? DEFAULT_MODEL
 
-/** Standard normal CDF (Abramowitz-Stegun 7.1.26). */
-export function normalCdf(z) {
-  const t = 1 / (1 + 0.3275911 * Math.abs(z) / Math.SQRT2)
-  const y = 1 - ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-(z * z) / 2)
-  return z >= 0 ? (1 + y) / 2 : (1 - y) / 2
-}
-
-/** Converts a naive America/New_York wall-clock time ("2026-10-16T19:00:00") to UTC ms. */
-export function easternToUtc(local) {
-  const [d, t = '00:00:00'] = local.split('T')
-  const [y, mo, da] = d.split('-').map(Number)
-  const [h, mi, s] = t.split(':').map(Number)
-  const guess = Date.UTC(y, mo - 1, da, h, mi, s || 0)
-  const offsetAt = (ms) => {
-    const name = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', timeZoneName: 'shortOffset' })
-      .formatToParts(new Date(ms))
-      .find((p) => p.type === 'timeZoneName').value
-    const m = /GMT([+-]\d+)(?::(\d+))?/.exec(name)
-    return m ? Number(m[1]) * 60 + Math.sign(Number(m[1])) * Number(m[2] ?? 0) : 0
-  }
-  let utc = guess - offsetAt(guess) * 60000
-  utc = guess - offsetAt(utc) * 60000
-  return utc
-}
 
 const num = (v) => {
   const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : NaN
