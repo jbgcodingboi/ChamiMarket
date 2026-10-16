@@ -1,22 +1,40 @@
 /**
- * Local weather Quick markets for Central Park (NYC) and Islip (Long Island),
+ * Local weather Quick markets for Central Park (NYC) and Mineola (Long Island),
  * from the National Weather Service API (browser-callable):
  *  - "High of X°F or warmer" on round 5°F lines near the forecast high
  *  - "Measurable rain or snow" when the chance is neither tiny nor near-certain
  * Settled from the official NWS Daily Climate Report (CLI). A Yes can settle
  * early from the 4 PM preliminary report (a high or rainfall already reached
  * can't be undone); everything else settles from the final report issued
- * overnight.
+ * overnight. Mineola has no climate station of its own, so its markets use
+ * the Mineola forecast and settle from the closest official report, at JFK
+ * Airport, with a wider error to cover the distance.
  */
 import { clamp, normalCdf } from '../../utils/math.js'
 import { addDays, compactDate, etDate, etDayLabel, etInstant } from '../../utils/time.js'
 import { fetchJson } from '../http.js'
 import { quickMarket } from './common.js'
 
+/**
+ * Listed stations. grid is the NWS forecast gridpoint, or point (lat,lon) to
+ * look it up. report names where the official reading comes from when it
+ * isn't the place itself; sigmaPad widens the forecast error to match.
+ */
 export const STATIONS = [
   { id: 'nyc', name: 'Central Park', place: 'Central Park, NYC', cli: 'NYC', grid: 'OKX/34,45' },
-  { id: 'isp', name: 'Islip', place: 'Islip, Long Island (MacArthur Airport)', cli: 'ISP', grid: 'OKX/63,51' },
+  {
+    id: 'mnl',
+    name: 'Mineola',
+    place: 'Mineola, Long Island',
+    cli: 'JFK',
+    point: '40.7490,-73.6407',
+    report: 'JFK Airport',
+    reportNote: 'Mineola has no official climate station, so this market uses the closest one, at JFK Airport about 10 miles away.',
+    sigmaPad: 1,
+  },
 ]
+/** No longer listed, but positions already open on them still settle. */
+const RETIRED = [{ id: 'isp', name: 'Islip', place: 'Islip, Long Island (MacArthur Airport)', cli: 'ISP', grid: 'OKX/63,51' }]
 const NWS = 'https://api.weather.gov'
 const HIGH_CLOSE = '11:00'
 const PRECIP_CLOSE = '07:00'
@@ -68,7 +86,9 @@ export function buildWeatherMarkets(station, periods, now) {
   ;[today, addDays(today, 1)].forEach((date, dayIndex) => {
     const fc = dayForecast(periods, date)
     if (!fc) return
-    const sigma = SIGMA_BY_DAY[dayIndex]
+    const sigma = SIGMA_BY_DAY[dayIndex] + (station.sigmaPad ?? 0)
+    const where = station.report ?? station.place
+    const note = station.reportNote ? ` ${station.reportNote}` : ''
     const highClose = etInstant(date, HIGH_CLOSE)
     if (now < highClose) {
       const base = Math.round(fc.high / LINE_STEP) * LINE_STEP
@@ -80,7 +100,7 @@ export function buildWeatherMarkets(station, periods, now) {
             id: highId(station.id, date, line),
             title: `${station.name} hits ${line}°F ${dayIndex ? 'tomorrow' : 'today'}?`,
             eventTitle: `${station.place} · ${etDayLabel(date)} · forecast high ${fc.high}°F`,
-            description: `Resolves Yes if the official maximum temperature for ${station.place} on ${etDayLabel(date)} is ${line}°F or higher, per the National Weather Service Daily Climate Report. A Yes can settle as soon as the 4 PM report shows the high reached; otherwise the market settles from the final report issued overnight. Trading closes at 11:00 AM ET that day. Odds come from the NWS forecast high with a typical forecast error of about ${sigma}°F.`,
+            description: `Resolves Yes if the official maximum temperature for ${where} on ${etDayLabel(date)} is ${line}°F or higher, per the National Weather Service Daily Climate Report.${note} A Yes can settle as soon as the 4 PM report shows the high reached; otherwise the market settles from the final report issued overnight. Trading closes at 11:00 AM ET that day. Odds come from the NWS forecast high for ${station.place} with a typical error of about ${sigma}°F.`,
             endDate: highClose,
             createdAt: highClose - 2 * 864e5,
             yesPrice: p,
@@ -97,7 +117,7 @@ export function buildWeatherMarkets(station, periods, now) {
           id: precipId(station.id, date),
           title: `Rain or snow at ${station.name} ${dayIndex ? 'tomorrow' : 'today'}?`,
           eventTitle: `${station.place} · ${etDayLabel(date)} · ${Math.round(fc.popDay * 100)}% chance in the daytime forecast`,
-          description: `Resolves Yes if the National Weather Service Daily Climate Report for ${station.place} records at least 0.01 inches of precipitation (rain or melted snow) on ${etDayLabel(date)}. A trace does not count. A Yes can settle from the 4 PM report; a No settles from the final report issued overnight. Trading closes at 7:00 AM ET that day. Odds come from the NWS chance of precipitation.`,
+          description: `Resolves Yes if the National Weather Service Daily Climate Report for ${where} records at least 0.01 inches of precipitation (rain or melted snow) on ${etDayLabel(date)}. A trace does not count.${note} A Yes can settle from the 4 PM report; a No settles from the final report issued overnight. Trading closes at 7:00 AM ET that day. Odds come from the NWS chance of precipitation for ${station.place}.`,
           endDate: precipClose,
           createdAt: precipClose - 2 * 864e5,
           yesPrice: clamp(pp, 0.15, 0.85),
@@ -137,13 +157,13 @@ export function parseClimateReport(text) {
   }
 }
 
-const WX_RE = /^q-wx-(nyc|isp)-(high|precip)-(\d{8})(?:-(\d+))?$/
+const WX_RE = /^q-wx-(nyc|mnl|isp)-(high|precip)-(\d{8})(?:-(\d+))?$/
 
 export function parseWeatherId(id) {
   const m = WX_RE.exec(id)
   if (!m) return null
   const date = `${m[3].slice(0, 4)}-${m[3].slice(4, 6)}-${m[3].slice(6)}`
-  return { station: STATIONS.find((s) => s.id === m[1]), kind: m[2], date, line: m[4] ? Number(m[4]) : null }
+  return { station: [...STATIONS, ...RETIRED].find((s) => s.id === m[1]), kind: m[2], date, line: m[4] ? Number(m[4]) : null }
 }
 
 /** Outcome from the station's climate reports (any order), or null while pending. */
@@ -162,8 +182,17 @@ export function weatherOutcome(parsed, reports, now) {
   return now > etInstant(addDays(parsed.date, 4), '00:00') ? 'void' : null
 }
 
+/** The station's forecast URL: its fixed gridpoint, or the one NWS gives for its coordinates. */
+async function forecastUrl(station) {
+  if (station.grid) return `${NWS}/gridpoints/${station.grid}/forecast`
+  const point = await fetchJson(`${NWS}/points/${station.point}`, { memoMs: 24 * 3600e3 })
+  const url = point?.properties?.forecast
+  if (typeof url !== 'string' || !url.startsWith(`${NWS}/gridpoints/`)) throw new Error(`No forecast for ${station.name}`)
+  return url
+}
+
 export async function fetchForecast(station) {
-  return parseForecast(await fetchJson(`${NWS}/gridpoints/${station.grid}/forecast`, { memoMs: 600000 }))
+  return parseForecast(await fetchJson(await forecastUrl(station), { memoMs: 600000 }))
 }
 
 /** The station's most recent climate reports (preliminary and final), parsed. */

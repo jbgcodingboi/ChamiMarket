@@ -5,6 +5,7 @@ import { fairFloats, newClientSeed, sha256Hex } from '../../games/fair.js'
 import { placeMines } from '../../games/mines.js'
 import { useFairStore } from '../../services/games/fairSeeds.js'
 import { toast } from '../../store/toastStore.js'
+import Modal from '../ui/Modal.jsx'
 
 function Row({ label, children }) {
   return (
@@ -122,7 +123,7 @@ function Verifier({ game, previous }) {
  * before betting), the editable client seed, the nonce, the last revealed
  * server seed, and a verifier that recomputes any bet.
  */
-export default function FairnessPanel({ game, locked }) {
+function FairnessDetails({ game, locked }) {
   const info = useFairStore((s) => s.info)
   const load = useFairStore((s) => s.load)
   const rotate = useFairStore((s) => s.rotate)
@@ -147,50 +148,66 @@ export default function FairnessPanel({ game, locked }) {
   }
 
   return (
-    <details className="card p-4 text-sm">
-      <summary className="cursor-pointer font-semibold">Provably fair</summary>
-      <div className="mt-3 space-y-4 text-muted">
-        <p className="leading-relaxed">
-          Every result comes from HMAC-SHA256(server seed, &quot;client seed:nonce:round&quot;). You see a hash of the server seed before you bet, you pick
-          the client seed, and the nonce counts your bets. Change seeds to reveal the old server seed and check any past bet below.
-        </p>
-        {info ? (
-          <>
-            <Row label="Active server seed (SHA-256 hash)">{info.serverSeedHash}</Row>
-            <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
-              <Row label="Client seed">{info.clientSeed}</Row>
-              <Row label="Nonce">{info.nonce}</Row>
+    <div className="space-y-4 text-sm text-muted">
+      <p className="leading-relaxed">
+        Every result comes from HMAC-SHA256(server seed, &quot;client seed:nonce:round&quot;). You see a hash of the server seed before you bet, you pick
+        the client seed, and the nonce counts your bets. Change seeds to reveal the old server seed and check any past bet below.
+      </p>
+      {info ? (
+        <>
+          <Row label="Active server seed (SHA-256 hash)">{info.serverSeedHash}</Row>
+          <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+            <Row label="Client seed">{info.clientSeed}</Row>
+            <Row label="Nonce">{info.nonce}</Row>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <input
+              className="input flex-1 font-mono text-xs"
+              placeholder="New client seed (blank for random)"
+              value={seed}
+              onChange={(e) => setSeed(e.target.value)}
+              aria-label="New client seed"
+              spellCheck="false"
+            />
+            <button type="button" className="btn btn-ghost" disabled={busy || locked} onClick={change} title={locked ? 'Finish the current round first' : undefined}>
+              Change seeds
+            </button>
+          </div>
+          {info.previous && (
+            <div className="space-y-2 border-t border-line pt-3">
+              <p className="text-xs font-semibold text-fg">Previous seeds ({info.previous.nonce} bet{info.previous.nonce === 1 ? '' : 's'})</p>
+              <Row label="Server seed (revealed)">{info.previous.serverSeed}</Row>
+              <Row label="Its SHA-256 hash">{info.previous.serverSeedHash}</Row>
+              <Row label="Client seed">{info.previous.clientSeed}</Row>
             </div>
-            <div className="flex flex-wrap gap-2">
-              <input
-                className="input flex-1 font-mono text-xs"
-                placeholder="New client seed (blank for random)"
-                value={seed}
-                onChange={(e) => setSeed(e.target.value)}
-                aria-label="New client seed"
-                spellCheck="false"
-              />
-              <button type="button" className="btn btn-ghost" disabled={busy || locked} onClick={change} title={locked ? 'Finish the current round first' : undefined}>
-                Change seeds
-              </button>
-            </div>
-            {info.previous && (
-              <div className="space-y-2 border-t border-line pt-3">
-                <p className="text-xs font-semibold text-fg">Previous seeds ({info.previous.nonce} bet{info.previous.nonce === 1 ? '' : 's'})</p>
-                <Row label="Server seed (revealed)">{info.previous.serverSeed}</Row>
-                <Row label="Its SHA-256 hash">{info.previous.serverSeedHash}</Row>
-                <Row label="Client seed">{info.previous.clientSeed}</Row>
-              </div>
-            )}
-            <div className="border-t border-line pt-3">
-              <p className="mb-2 text-xs font-semibold text-fg">Verify a bet</p>
-              <Verifier key={info.previous?.serverSeed ?? 'none'} game={game} previous={info.previous} />
-            </div>
-          </>
-        ) : (
-          <p>Loading seeds…</p>
-        )}
-      </div>
-    </details>
+          )}
+          <div className="border-t border-line pt-3">
+            <p className="mb-2 text-xs font-semibold text-fg">Verify a bet</p>
+            <Verifier key={info.previous?.serverSeed ?? 'none'} game={game} previous={info.previous} />
+          </div>
+        </>
+      ) : (
+        <p>Loading seeds…</p>
+      )}
+    </div>
+  )
+}
+
+/** Small button in the game header that opens the provably fair seeds and verifier. */
+export default function FairnessButton({ game, locked }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <button type="button" onClick={() => setOpen(true)} className="btn btn-ghost shrink-0 px-3 text-xs whitespace-nowrap" aria-haspopup="dialog">
+        <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M12 3 4 6v6c0 4.5 3.4 8.3 8 9 4.6-.7 8-4.5 8-9V6l-8-3Z" />
+          <path d="m9 12 2 2 4-4" />
+        </svg>
+        Fairness
+      </button>
+      <Modal open={open} onClose={() => setOpen(false)} title="Provably fair" size="lg">
+        <FairnessDetails game={game} locked={locked} />
+      </Modal>
+    </>
   )
 }

@@ -3,7 +3,7 @@
  * in .github/workflows/sync-backend.yml with the project's service role key:
  *
  *  1. Prices: the curated Polymarket listing, Chaminade house markets and the
- *     Quick markets (crypto, local weather, stocks, parlays) are upserted into
+ *     Quick markets (crypto, local weather, stocks) are upserted into
  *     the `markets` table. Trades are priced from it (Polymarket trades also
  *     check the live API), and the app lists Chaminade and Quick markets from it.
  *  2. Results: every market someone holds is checked against its official
@@ -18,7 +18,7 @@ import { fetchCatalog, fetchMarketById, fetchRecentResolutions } from '../src/se
 import { houseOutcome, isHouseId } from '../src/services/chaminade.js'
 import { buildCoinMarkets, COINS, cryptoOutcome, fetchCandles, fetchCoinData, parseCryptoId } from '../src/services/quick/crypto.js'
 import { espnOutcome, fetchGamesFor, isEspnSettleable } from '../src/services/quick/espn.js'
-import { buildParlays, parlayOutcome, parseParlayId } from '../src/services/quick/parlays.js'
+import { parlayOutcome, parseParlayId } from '../src/services/quick/parlays.js'
 import { buildStockMarkets, parseStockId, stockOutcome } from '../src/services/quick/stocks.js'
 import { buildWeatherMarkets, fetchClimateReports, fetchForecast, parseWeatherId, STATIONS, weatherOutcome } from '../src/services/quick/weather.js'
 import { curate } from '../src/utils/curation.js'
@@ -73,7 +73,6 @@ const quick = [
   ...COINS.flatMap((c, i) => (settled(coins[i]) ? buildCoinMarkets(c, settled(coins[i]), now) : [])),
   ...STATIONS.flatMap((s, i) => (settled(weather[i]) ? buildWeatherMarkets(s, settled(weather[i]), now) : [])),
   ...buildStockMarkets(now, settled(closes) ?? {}),
-  ...buildParlays(listing, now),
 ]
 for (const [name, p] of Object.entries({ polymarket: catalog, chaminade: house, stocks: closes })) {
   if (p.status === 'rejected') console.warn(`${name} unavailable: ${p.reason?.message ?? p.reason}`)

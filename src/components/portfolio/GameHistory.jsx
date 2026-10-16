@@ -21,7 +21,7 @@ export default function GameHistory({ history }) {
           </Link>
         }
       >
-        Roulette, Blackjack and Plinko bet with your portfolio cash. Every round you play is listed here.
+        Games bet with your portfolio cash. Every round you play is listed here.
       </EmptyState>
     )
   }

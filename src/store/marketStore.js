@@ -160,7 +160,7 @@ export const useMarketStore = create((set, get) => ({
   },
 
   /**
-   * Rebuilds Quick markets (crypto, weather, stocks, parlays), settles held
+   * Rebuilds Quick markets (crypto, weather, stocks), settles held
    * Quick markets and tonight's pro games, and reprices held parlays from
    * their legs' current prices.
    */
@@ -174,9 +174,7 @@ export const useMarketStore = create((set, get) => ({
       if (s.status === 'ready') s.setListing(s.baseList, { source: s.source })
       return
     }
-    const s0 = get()
-    const listing = curate([...s0.baseList, ...s0.houseList])
-    const { markets, results } = await loadQuick({ now: Date.now(), listing, held: new Set(heldIds), lookup: getMarket })
+    const { markets, results } = await loadQuick({ now: Date.now(), held: new Set(heldIds), lookup: getMarket })
     set((s) => {
       let known = addToKnown(s.known, markets, heldIds)
       for (const id of heldIds) {
