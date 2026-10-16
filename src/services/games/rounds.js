@@ -12,7 +12,7 @@ import { roundMoney } from '../../utils/math.js'
 import { isPlainObject, readJSON, writeJSON } from '../../utils/storage.js'
 import * as backend from '../backend/api.js'
 import { BACKEND_ENABLED } from '../backend/config.js'
-import { nextFloats, roundKey, useFairStore } from './fairSeeds.js'
+import { crashInPlay, nextFloats, roundKey, useFairStore } from './fairSeeds.js'
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
 
@@ -91,7 +91,7 @@ function minesPick(s, tile) {
 
 async function minesBegin(amount, count) {
   if (!(count >= 1 && count <= 24)) throw new Error('Pick 1 to 24 mines.')
-  if (load('mines')?.phase === 'playing' || load('chicken')?.phase === 'playing') throw new Error('Finish the current round first.')
+  if (crashInPlay() || load('mines')?.phase === 'playing' || load('chicken')?.phase === 'playing') throw new Error('Finish the current round first.')
   const { bet, run } = stake(amount)
   const { floats, nonce } = await nextFloats(24)
   return { phase: 'playing', bet, mines: count, revealed: [], run, nonce, positions: mines.placeMines(floats, count) }
@@ -183,7 +183,7 @@ function chickenHop(s) {
 
 async function chickenBegin(amount, difficulty) {
   if (!chicken.DIFFICULTIES[difficulty]) throw new Error('Pick Easy, Medium, Hard or Daredevil.')
-  if (load('mines')?.phase === 'playing' || load('chicken')?.phase === 'playing') throw new Error('Finish the current round first.')
+  if (crashInPlay() || load('mines')?.phase === 'playing' || load('chicken')?.phase === 'playing') throw new Error('Finish the current round first.')
   const { bet, run } = stake(amount)
   const { floats, nonce } = await nextFloats(chicken.DIFFICULTIES[difficulty].lanes)
   return { phase: 'playing', bet, difficulty, lane: 0, run, nonce, crash: chicken.crashLane(floats, difficulty) }

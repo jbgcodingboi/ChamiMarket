@@ -3,6 +3,8 @@ import * as chicken from '../../games/chicken.js'
 import { formatRoll, rollFromFloat } from '../../games/dice.js'
 import { fairFloats, SEED_BETS } from '../../games/fair.js'
 import { placeMines } from '../../games/mines.js'
+import { FLOAT_COUNT, playRound } from '../../games/boneyard.js'
+import { formatMult, resultFromFloat } from '../../games/limbo.js'
 import { useFairStore } from '../../services/games/fairSeeds.js'
 import Modal from '../ui/Modal.jsx'
 
@@ -39,18 +41,20 @@ function Verifier({ game, previous }) {
   useEffect(() => {
     let live = true
     ;(async () => {
-      const floats = await fairFloats({ serverSeed: previous.serverSeed, clientSeed: previous.clientSeed, nonce }, 30)
+      const floats = await fairFloats({ serverSeed: previous.serverSeed, clientSeed: previous.clientSeed, nonce }, game === 'boneyard' ? FLOAT_COUNT : 30)
       if (!live) return
       setOut({
         roll: formatRoll(rollFromFloat(floats[0])),
         mines: placeMines(floats, mines),
         crash: chicken.crashLane(floats, difficulty),
+        limbo: resultFromFloat(floats[0]),
+        slot: game === 'boneyard' ? playRound(floats) : null,
       })
     })()
     return () => {
       live = false
     }
-  }, [previous, nonce, mines, difficulty])
+  }, [game, previous, nonce, mines, difficulty])
 
   return (
     <div className="space-y-3">
@@ -104,6 +108,18 @@ function Verifier({ game, previous }) {
             </div>
           )}
           {game === 'chicken' && <p>{out.crash ? `Hit on lane ${out.crash}` : 'Clears every lane'}</p>}
+          {(game === 'limbo' || game === 'crash') && (
+            <p>
+              {game === 'crash' ? 'Crash point' : 'Result'}: <span className="font-mono text-lg font-bold">{formatMult(out.limbo)}</span>
+            </p>
+          )}
+          {game === 'boneyard' && out.slot && (
+            <p>
+              Paid <span className="font-mono text-lg font-bold">{(out.slot.units / 100).toFixed(2)}×</span> the bet
+              {out.slot.bonus ? ` with ${out.slot.bonus === 'last-rites' ? 'Last Rites' : 'High Noon'} free spins` : ''}
+              {out.slot.spins[0].rip ? ' (R.I.P.)' : ''}
+            </p>
+          )}
         </div>
       )}
     </div>

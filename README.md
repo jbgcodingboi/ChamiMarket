@@ -32,7 +32,9 @@ Requires Node 20.19+ (Node 22 recommended).
 
 ## Features
 
-- **Discovery**: Sports, Top Politics, Chaminade and Quick, curated (see below), with Sports listed first in the All view;
+- **Discovery**: Sports, Top Politics, Chaminade and Quick, curated (see below), with Sports listed first in the All view.
+  On the Sports tab a second row narrows to a sport or league (NFL, NBA, MLB, NHL, college, each top soccer league,
+  tennis, golf, UFC/MMA and more), showing only the ones with markets and how many each has;
   an **Ending in 24h** filter, "Closes in 2h 05m" countdowns on cards that close within a day, and a
   debounced live search (title and rules text, case-insensitive, combined with the category filter) and sorting
   by volume, newest or ending soon.
@@ -159,7 +161,7 @@ Polymarket's resolution. Only markets whose outcomes match both teams of one ESP
 
 ## Games
 
-The **Games** tab (between Markets and Leaderboard) has six casino games that bet with your portfolio cash, the
+The **Games** tab (between Markets and Leaderboard) has eight casino games that bet with your portfolio cash, the
 same $100,000 you trade with. Wins and losses change your net worth, the equity chart and your leaderboard rank
 like any trade, and a balance reset covers games too. Playing needs an account, just like trading. Every round is
 logged on the portfolio's **Games** tab, with per-game stats (rounds, amount wagered, net) and a "Games this run"
@@ -185,16 +187,30 @@ sampling, so outcomes are unbiased.
 - **Chicken Cross**: hop a chicken lane by lane across traffic. Easy survives 96% of lanes over 30 lanes, Medium 88%
   over 25, Hard 80% over 22 and Daredevil 60% over 18 (up to about 9,600×). Lane n pays 0.98 ÷ chanceⁿ, a 98% return.
   A tilted roadway with moving traffic, a multiplier on every lane's manhole, hop, cash-out and crash animations.
+- **Limbo & Crash**: one draw from 1.00× to 1,000,000× (`floor(2^24 × 99 ÷ (n + 1))` hundredths, where n is the
+  first 3 bytes of the HMAC), so reaching x has a 99% ÷ x chance and every target returns 99%. **Limbo** pays your
+  target times the bet when the draw reaches it. **Crash** draws the same number as the crash point and grows the
+  multiplier as e^(0.00006 × ms) (2× after about 11.6 seconds): cash out before it crashes, or set an auto cash-out.
+  The server times the round and keeps the crash point hidden until it's over.
+- **Boneyard**: a high-volatility western ways slot on a 2-3-3-3-1 grid (54 ways on a plain spin). Nudge Wilds on
+  reels 2 to 4 nudge to fill the reel and gain +1 multiplier per step; Split Wilds on reel 5 count twice and split a
+  row of the reels to their left, doubling those symbols and any Nudge Wild multiplier. In the base game a win
+  smaller than the bet pays nothing (the R.I.P. rule). 3 scatters start **High Noon** (8 free spins with a global
+  multiplier that grows with every wild and never resets); with a coffin on reel 5 they start **Last Rites** (10 free
+  spins that also turn one character wild each spin and give another a random 5× to 999× multiplier). Wins stop at
+  300,000× the bet. A 16 million round simulation puts the return at about 96%. Its own design, inspired by the
+  mechanics of high-volatility slots, not a copy of any commercial game.
 
-Dice, Mines and Chicken Cross have **auto play**: a number of bets, raising the bet by a percentage after a win or a
+Dice, Limbo, Boneyard, Mines and Chicken Cross have **auto play**: a number of bets, raising the bet by a percentage after a win or a
 loss (one click sets up Martingale), and stops at a profit or loss you choose. Mines auto opens the same picked tiles
 every round; Chicken Cross auto cashes out at a lane you choose. Small synthesized sounds can be muted.
 
 They are also **provably fair**, using the scheme Stake-style games publish: each result comes from
 `HMAC-SHA256(server seed, "<client seed>:<nonce>:<round>")`, four bytes per random number. You see the SHA-256 hash
 of the server seed before betting, and the nonce counts your bets. The seeds are set by the server and players can't
-change them. After 100 bets the pair is retired (never while a Mines or Chicken Cross round is open), its server seed
-is revealed, and the built-in verifier recomputes any dice roll, mine layout or crash lane made with it.
+change them. After 100 bets the pair is retired (never while a Mines, Chicken Cross or Crash round is open), its server
+seed is revealed, and the built-in verifier recomputes any dice roll, mine layout, crash lane, Limbo or Crash result
+or Boneyard round made with it.
 With the backend, the server seed, mine positions and crash lane never leave the server until the round or seed pair
 is finished; the database functions use the same formulas, and tests check both produce identical results.
 

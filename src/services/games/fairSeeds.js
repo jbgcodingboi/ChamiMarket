@@ -36,8 +36,14 @@ async function publicInfo(seeds) {
   }
 }
 
-/** True while a local Mines or Chicken Cross round is open (its seeds can't be revealed mid-round). */
-const localRoundOpen = () => ['mines', 'chicken'].some((g) => readJSON(roundKey(g), isPlainObject, null)?.phase === 'playing')
+/** True while a local Crash round is still in the air (it ends at its auto cash-out or its crash). */
+export const crashInPlay = () => {
+  const s = readJSON(roundKey('crash'), isPlainObject, null)
+  return s?.phase === 'playing' && Date.now() < s.ends
+}
+
+/** True while a local Mines, Chicken Cross or Crash round is open (its seeds can't be revealed mid-round). */
+export const localRoundOpen = () => crashInPlay() || ['mines', 'chicken'].some((g) => readJSON(roundKey(g), isPlainObject, null)?.phase === 'playing')
 
 export const useFairStore = create((set, get) => ({
   info: null,

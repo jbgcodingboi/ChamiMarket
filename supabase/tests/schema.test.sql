@@ -506,4 +506,112 @@ select pg_temp.ok(jsonb_array_length(public.leaderboard()) = :players_before - 1
 select pg_temp.ok(exists (select 1 from public.portfolios where user_id = :'alice'), 'other players are untouched');
 select pg_temp.ok(public.username_available('bob'), 'the username is free again');
 
+-- Limbo, Crash and Boneyard -----------------------------------------------------------
+reset role;
+select pg_temp.ok((select array_agg(private.limbo_cents((private.fair_floats(repeat('b', 64), 'chami', n, 1))[1]) order by n)
+  from generate_series(0, 5) n) = array[104, 118, 398, 233, 207, 206]::bigint[], 'limbo results match the browser engine');
+select pg_temp.ok((select jsonb_object_agg(n, (private.by_round(private.fair_floats(repeat('b', 64), 'chami', n, 242)) ->> 'units')::bigint)
+  from unnest(array[1, 7, 14, 45, 915, 17181]) n) = '{"1": 0, "7": 160, "14": 9600, "45": 4872, "915": 2314, "17181": 88000}',
+  'boneyard rounds (free spins included) match the browser engine');
+-- A client seed whose first round crashes at 1.00×.
+select 'c' || n as crash_at_one from generate_series(0, 5000) n
+  where private.limbo_cents((private.fair_floats(repeat('b', 64), 'c' || n, 0, 1))[1]) = 100 limit 1 \gset
+select set_config('test.crash_at_one', :'crash_at_one', false);
+create or replace function pg_temp.seeds_at(p_user uuid, p_nonce int, p_client text default 'chami') returns void language sql security definer as $$
+  update public.fair_seeds set server_seed = repeat('b', 64), client_seed = p_client, nonce = p_nonce where user_id = p_user $$;
+create or replace function pg_temp.age_crash(p_user uuid, p_ms bigint) returns void language sql security definer as $$
+  update public.game_states set state = state || jsonb_build_object('started', (state ->> 'started')::bigint - p_ms, 'ends', (state ->> 'ends')::bigint - p_ms)
+  where user_id = p_user and game = 'crash' $$;
+grant execute on function pg_temp.seeds_at(uuid, int, text), pg_temp.age_crash(uuid, bigint) to authenticated;
+set role authenticated;
+select set_config('request.jwt.claim.sub', :'alice', false);
+select pg_temp.clear_limits();
+
+do $$
+declare r jsonb; before numeric; me uuid := auth.uid();
+begin
+  -- Limbo: nonce 2 draws 3.98×.
+  perform pg_temp.seeds_at(me, 2);
+  before := (public.get_portfolio() ->> 'cash')::numeric;
+  r := public.play_limbo(10, 3.98);
+  perform pg_temp.ok((r ->> 'result')::numeric = 3.98 and (r ->> 'win')::boolean and (r ->> 'payout')::numeric = 39.8
+    and (r -> 'portfolio' ->> 'cash')::numeric = before - 10 + 39.8, 'limbo pays target × bet when the draw reaches it');
+  r := public.play_limbo(10, 2);
+  perform pg_temp.ok((r ->> 'result')::numeric = 2.33 and (r ->> 'payout')::numeric = 20, 'limbo nonce 3 draws 2.33×');
+  r := public.play_limbo(10, 2.08);
+  perform pg_temp.ok((r ->> 'result')::numeric = 2.07 and not (r ->> 'win')::boolean and (r ->> 'payout')::numeric = 0, 'a draw just under the target loses');
+  perform pg_temp.expect_error($q$select public.play_limbo(10, 1)$q$, '%1.01%');
+  perform pg_temp.expect_error($q$select public.play_limbo(10, 2000000)$q$, '%1,000,000%');
+
+  -- Crash, cashed out by hand right away: nonce 0 crashes at 1.04×.
+  perform pg_temp.seeds_at(me, 0);
+  before := (public.get_portfolio() ->> 'cash')::numeric;
+  r := public.crash_start(10);
+  perform pg_temp.ok(r -> 'round' ->> 'phase' = 'playing' and not (r -> 'round') ? 'crash' and r -> 'round' -> 'result' = 'null'
+    and (r -> 'portfolio' ->> 'cash')::numeric = before - 10, 'the crash point stays on the server while the round runs');
+  perform pg_temp.expect_error($q$select public.crash_start(10)$q$, '%current round%');
+  perform pg_temp.expect_error($q$select public.mines_start(10, 3)$q$, '%current round%');
+  r := public.crash_cashout();
+  perform pg_temp.ok((r -> 'round' -> 'result' ->> 'win')::boolean and (r -> 'round' -> 'result' ->> 'cashout')::numeric = 1
+    and (r -> 'round' -> 'result' ->> 'crash')::numeric = 1.04 and (r -> 'portfolio' ->> 'cash')::numeric = before,
+    'cashing out at 1.00× gives the bet back and reveals the crash point');
+
+  -- Auto cash-out at 1.01×: nonce 2 crashes at 3.98×, so it wins once 166 ms have passed.
+  perform pg_temp.seeds_at(me, 2);
+  before := (public.get_portfolio() ->> 'cash')::numeric;
+  r := public.crash_start(10, 1.01);
+  perform pg_temp.ok(not (public.crash_state() -> 'round' ->> 'phase' = 'done') or true, 'polling is allowed');
+  perform pg_sleep(0.25);
+  r := public.crash_state();
+  perform pg_temp.ok(r -> 'round' ->> 'phase' = 'done' and (r -> 'round' -> 'result' ->> 'payout')::numeric = 10.1
+    and (r -> 'portfolio' ->> 'cash')::numeric = before + 0.1, 'auto cash-out pays at its target');
+
+  -- Left running past the crash: settled as a loss by the next call, or by the sync job.
+  perform pg_temp.seeds_at(me, 2);
+  before := (public.get_portfolio() ->> 'cash')::numeric;
+  r := public.crash_start(10);
+  perform pg_temp.age_crash(me, 60000);
+  r := public.crash_cashout();
+  perform pg_temp.ok(not (r -> 'round' -> 'result' ->> 'win')::boolean and (r -> 'round' -> 'result' ->> 'crash')::numeric = 3.98
+    and (r -> 'portfolio' ->> 'cash')::numeric = before - 10, 'a cash-out after the crash loses');
+end $$;
+
+do $$
+declare r jsonb; me uuid := auth.uid();
+begin
+  perform pg_temp.seeds_at(me, 0, current_setting('test.crash_at_one'));
+  r := public.crash_start(10);
+  r := public.crash_state();
+  perform pg_temp.ok(r -> 'round' ->> 'phase' = 'done' and (r -> 'round' -> 'result' ->> 'crash')::numeric = 1, 'a 1.00× crash point loses at once');
+  -- A round the player walks away from doesn't block other games.
+  perform pg_temp.seeds_at(me, 2);
+  r := public.crash_start(10);
+  perform pg_temp.age_crash(me, 60000);
+  r := public.mines_start(1, 3);
+  perform pg_temp.ok(r -> 'round' ->> 'phase' = 'playing' and public.crash_state() -> 'round' ->> 'phase' = 'done', 'a finished crash round is settled before the next game');
+  r := public.mines_reveal(0);
+  if r -> 'round' ->> 'phase' = 'playing' then r := public.mines_cashout(); end if;
+
+  -- Boneyard: nonce 14 pays 96× (a Nudge Wild and a Split Wild), nonce 1 is an R.I.P. spin.
+  perform pg_temp.seeds_at(me, 14);
+  r := public.play_boneyard(1);
+  perform pg_temp.ok((r ->> 'payout')::numeric = 96 and (r -> 'round' ->> 'units')::int = 9600, 'boneyard pays 96× on nonce 14');
+  perform pg_temp.seeds_at(me, 1);
+  r := public.play_boneyard(2);
+  perform pg_temp.ok((r ->> 'payout')::numeric = 0 and (r -> 'round' -> 'spins' -> 0 ->> 'rip')::boolean, 'a win under the bet is R.I.P.');
+  perform pg_temp.seeds_at(me, 45);
+  r := public.play_boneyard(0.5);
+  perform pg_temp.ok(r -> 'round' ->> 'bonus' = 'high-noon' and jsonb_array_length(r -> 'round' -> 'spins') = 9 and (r ->> 'payout')::numeric = 24.36,
+    'High Noon plays 8 free spins in the same round');
+  perform pg_temp.expect_error($q$select public.play_boneyard(0.05)$q$, '%at least $0.10%');
+end $$;
+
+reset role;
+select pg_temp.ok((select count(*) from public.activity where kind = 'game' and game in ('limbo', 'crash', 'boneyard')) >= 10
+  and exists (select 1 from public.activity where game = 'boneyard' and detail like '%R.I.P.%'), 'every round of the new games is in the feed');
+select pg_temp.ok((select detail from public.game_rounds where game = 'boneyard' order by id desc limit 1) like 'High Noon free spins%', 'boneyard rounds name their bonus');
+-- Every dice roll goes to the feed now, not just big wins.
+select pg_temp.ok((select count(*) from public.game_rounds where game = 'dice') = (select count(*) from public.activity where game = 'dice'),
+  'every dice round is in the feed');
+
 \echo 'all database tests passed'

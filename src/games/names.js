@@ -6,4 +6,7 @@ export const GAME_NAME = {
   dice: 'Dice',
   mines: 'Mines',
   chicken: 'Chicken Cross',
+  limbo: 'Limbo',
+  crash: 'Crash',
+  boneyard: 'Boneyard',
 }
