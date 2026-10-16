@@ -89,9 +89,15 @@ create table if not exists public.game_rounds (
   detail text not null default '',
   created_at timestamptz not null default now()
 );
-alter table public.game_rounds drop constraint if exists game_rounds_game_check;
-alter table public.game_rounds add constraint game_rounds_game_check
-  check (game in ('roulette', 'blackjack', 'plinko', 'dice', 'mines', 'chicken'));
+-- Only rebuilt when the game list changes, so a re-run doesn't lock and recheck the whole table.
+do $$ begin
+  if coalesce((select pg_get_constraintdef(oid) from pg_constraint
+      where conrelid = 'public.game_rounds'::regclass and conname = 'game_rounds_game_check'), '') not like '%chicken%' then
+    alter table public.game_rounds drop constraint if exists game_rounds_game_check;
+    alter table public.game_rounds add constraint game_rounds_game_check
+      check (game in ('roulette', 'blackjack', 'plinko', 'dice', 'mines', 'chicken'));
+  end if;
+end $$;
 create index if not exists game_rounds_user_idx on public.game_rounds (user_id, created_at desc);
 
 create table if not exists public.equity_snapshots (
@@ -196,6 +202,7 @@ create table if not exists public.feedback (
 );
 create index if not exists feedback_created_idx on public.feedback (created_at desc);
 create index if not exists feedback_user_idx on public.feedback (user_id);
+create index if not exists feedback_new_idx on public.feedback (created_at) where status = 'new';
 
 create table if not exists private.rate_limits (
   user_id uuid not null,
@@ -203,6 +210,32 @@ create table if not exists private.rate_limits (
   window_start timestamptz not null,
   hits int not null,
   primary key (user_id, bucket)
+);
+
+-- Running game totals per player, run and game, kept by private.game_round, so
+-- portfolio and leaderboard reads don't add up every round ever played.
+create table if not exists private.game_totals (
+  user_id uuid not null references public.portfolios (user_id) on delete cascade,
+  run int not null,
+  game text not null,
+  rounds bigint not null default 0,
+  wagered numeric not null default 0,
+  net numeric not null default 0,
+  best numeric not null default 0,
+  primary key (user_id, run, game)
+);
+-- Fills in players from before the table existed. Anyone with a row is already kept up to date.
+insert into private.game_totals (user_id, run, game, rounds, wagered, net, best)
+select g.user_id, g.run, g.game, count(*), sum(g.staked), sum(g.net), max(g.net)
+from public.game_rounds g
+where not exists (select 1 from private.game_totals t where t.user_id = g.user_id)
+group by g.user_id, g.run, g.game;
+
+-- The last leaderboard, reused for a few seconds so a burst of visitors runs it once.
+create table if not exists private.leaderboard_cache (
+  id int primary key check (id = 1),
+  data jsonb not null,
+  at timestamptz not null
 );
 
 -- ---------------------------------------------------------------------------
@@ -310,7 +343,8 @@ language sql stable set search_path = '' as $$ select username::text from public
 /** Live Polymarket price via the http extension; null when unavailable. */
 create or replace function private.live_gamma(p_id text) returns jsonb
 language plpgsql volatile set search_path = '' as $$
-declare v_status int; v_body text; j jsonb; prices jsonb; y numeric; n numeric;
+declare v_status int; v_body text; j jsonb; prices jsonb; y numeric; n numeric; v_closed boolean; v_accepting boolean;
+  v_end timestamptz; v_final boolean;
 begin
   if p_id !~ '^\d{1,15}$' then return null; end if;
   begin
@@ -325,21 +359,26 @@ begin
     prices := (j ->> 'outcomePrices')::jsonb;
     y := (prices ->> 0)::numeric;
     n := (prices ->> 1)::numeric;
+    v_closed := coalesce((j ->> 'closed')::boolean, false);
+    v_accepting := coalesce((j ->> 'acceptingOrders')::boolean, true);
+    v_end := (j ->> 'endDate')::timestamptz;
   exception when others then
     return null;
   end;
   if y is null or n is null or y < 0 or y > 1 or n < 0 or n > 1 then return null; end if;
+  -- A closed market can still be under an UMA proposal or dispute; only a final result settles.
+  v_final := v_closed and coalesce(nullif(j ->> 'umaResolutionStatus', ''), 'resolved') = 'resolved';
   return jsonb_build_object(
     'yes', round(y, 4), 'no', round(n, 4),
-    'closed', coalesce((j ->> 'closed')::boolean, false),
-    'accepting', coalesce((j ->> 'acceptingOrders')::boolean, true),
-    'end_date', j ->> 'endDate',
+    'closed', v_closed,
+    'accepting', v_accepting,
+    'end_date', v_end,
     'title', left(coalesce(j ->> 'question', ''), 300),
     'outcome', case
-      when coalesce((j ->> 'closed')::boolean, false) and y >= 0.99 and n <= 0.01 then 'yes'
-      when coalesce((j ->> 'closed')::boolean, false) and n >= 0.99 and y <= 0.01 then 'no'
+      when v_final and y >= 0.99 and n <= 0.01 then 'yes'
+      when v_final and n >= 0.99 and y <= 0.01 then 'no'
       -- Canceled events settle 50-50 on Polymarket; here they refund at cost.
-      when coalesce((j ->> 'closed')::boolean, false) and y = 0.5 and n = 0.5 then 'void'
+      when v_final and y = 0.5 and n = 0.5 then 'void'
     end
   );
 end $$;
@@ -443,6 +482,10 @@ begin
         closes := coalesce(m.end_date, (live ->> 'end_date')::timestamptz);
       end if;
       if m.updated_at < now() - interval '3 hours' then err := 'This market''s price is refreshing. Try again in a few minutes.'; return; end if;
+      -- Once a game is under way, an old price would let players buy the leading side cheap.
+      if m.game_start <= now() and m.updated_at < now() - interval '2 minutes' then
+        err := 'This market''s price is refreshing. Try again in a minute.'; return;
+      end if;
     elsif p_market ~ '^q-(btc|eth)-above-\d+(\.\d+)?-\d+$' then
       -- Hourly crypto markets move fast: price them from live Coinbase spot,
       -- at most every 10 seconds per market, the same way the browser does.
@@ -524,12 +567,12 @@ create or replace function private.portfolio_json(p_user uuid) returns jsonb
 language sql stable set search_path = '' as $$
   with pf as (select * from public.portfolios where user_id = p_user),
   stats as (
-    select game, count(*) as rounds, sum(staked) as wagered, sum(net) as net, greatest(max(net), 0) as best
-    from public.game_rounds where user_id = p_user group by game
+    select game, sum(rounds) as rounds, sum(wagered) as wagered, sum(net) as net, greatest(max(best), 0) as best
+    from private.game_totals where user_id = p_user group by game
   ),
   run_games as (
-    select count(*) as rounds, coalesce(sum(net), 0) as net, coalesce(sum(staked), 0) as wagered, greatest(coalesce(max(net), 0), 0) as best
-    from public.game_rounds g, pf where g.user_id = p_user and g.run = pf.run
+    select coalesce(sum(rounds), 0) as rounds, coalesce(sum(net), 0) as net, coalesce(sum(wagered), 0) as wagered, greatest(coalesce(max(best), 0), 0) as best
+    from private.game_totals g, pf where g.user_id = p_user and g.run = pf.run
   )
   select jsonb_build_object(
     'cash', pf.cash,
@@ -646,6 +689,10 @@ begin
     raise exception 'Pick a username of 3 to 20 letters, numbers or underscores.';
   end if;
   if private.is_reserved_name(v_name) then raise exception 'That username is reserved. Pick another.'; end if;
+  -- No look-alikes of an existing player either (aIice next to alice).
+  if exists (select 1 from public.profiles where private.name_key(username::text) = private.name_key(v_name)) then
+    raise exception 'That username is taken.';
+  end if;
   -- A username's login address (<name>@users.chamimarket.app, see VITE_USERNAME_EMAIL_DOMAIN) belongs to that
   -- username only, so nobody can claim someone else's login name under a different profile name.
   if lower(new.email) like '%@users.chamimarket.app' and lower(split_part(new.email, '@', 1)) <> lower(v_name) then
@@ -678,8 +725,10 @@ create trigger on_auth_user_email before update of email on auth.users for each 
 create or replace function public.username_available(p_username text) returns boolean
 language sql stable security definer set search_path = '' as $$
   select not private.is_reserved_name(p_username)
-    and not exists (select 1 from public.profiles where lower(username::text) = lower(trim(p_username)))
+    and not exists (select 1 from public.profiles where private.name_key(username::text) = private.name_key(trim(p_username)))
 $$;
+
+create index if not exists profiles_name_key_idx on public.profiles (private.name_key(username::text));
 
 create or replace function public.get_portfolio() returns jsonb
 language plpgsql volatile security definer set search_path = '' as $$
@@ -719,7 +768,10 @@ begin
   if length(coalesce(p_new_password, '')) < 8 or length(p_new_password) > 72 then
     return jsonb_build_object('error', 'Passwords need 8 to 72 characters.');
   end if;
-  select id into v_user from auth.users where lower(email) = lower(trim(p_email));
+  -- Every attempt hashes, so all of them together are capped too.
+  perform private.rate_limit('00000000-0000-0000-0000-000000000000', 'recovery-all', 300);
+  -- Login emails are stored in lowercase, so this uses the email index.
+  select id into v_user from auth.users where email = lower(trim(p_email));
   if v_user is not null then
     select * into rc from public.recovery_codes where user_id = v_user for update;
   end if;
@@ -776,11 +828,12 @@ begin
   if p_amount is null or not (p_amount >= 0.01 and p_amount < 1e12) then raise exception 'Enter an amount of at least $0.01.'; end if;
   -- Parlays are no longer offered. Positions opened earlier can still be sold and settle as before.
   if p_market_id like 'q-parlay-%' then raise exception 'Parlays are no longer offered.'; end if;
+  -- One trade or settlement per market at a time, so a buy can't slip in while it settles.
+  -- Market first, then the portfolio, the same order as sell and resolve, so they can't deadlock.
+  perform pg_advisory_xact_lock(hashtext('market:' || p_market_id));
   select * into pf from public.portfolios where user_id = v_user for update;
   spend := round(p_amount, 2);
   if spend > pf.cash then raise exception 'Amount exceeds your available cash ($%).', to_char(pf.cash, 'FM999,999,999,990.00'); end if;
-  -- One trade or settlement per market at a time, so a buy can't slip in while it settles.
-  perform pg_advisory_xact_lock(hashtext('market:' || p_market_id));
   -- From here on, problems are returned rather than raised so the price check and rate limit stick.
   select * into q from private.quote(p_market_id, p_side);
   if q.err is not null then return jsonb_build_object('error', q.err); end if;
@@ -888,6 +941,7 @@ begin
   if upper(trim(coalesce(p_confirm, ''))) <> 'DELETE' then return jsonb_build_object('error', 'Type DELETE to confirm.'); end if;
   delete from private.rate_limits where user_id = v_user;
   delete from auth.users where id = v_user;
+  delete from private.leaderboard_cache;
   return jsonb_build_object('deleted', true);
 end $$;
 
@@ -901,7 +955,9 @@ begin
     for pos in select * from public.positions where user_id = u and market_id = p_market for update loop
       payout := case when p_outcome = 'void' then pos.cost_basis when pos.side = p_outcome then trunc(pos.shares, 2) else 0 end;
       pnl := case when p_outcome = 'void' then 0 else payout - pos.cost_basis end;
-      update public.portfolios set cash = cash + payout, realized_pnl = realized_pnl + pnl, updated_at = now() where user_id = u;
+      -- Capped at the column limit, so one huge balance can't make a settlement fail.
+      update public.portfolios set cash = least(cash + payout, 99999999999999.99),
+        realized_pnl = greatest(least(realized_pnl + pnl, 99999999999999.99), -99999999999999.99), updated_at = now() where user_id = u;
       insert into public.history (user_id, run, type, market_id, market_title, side, shares, price, amount, realized_pnl, note)
       values (u, pf.run, 'settlement', p_market, pos.market_title, pos.side, pos.shares,
         case when p_outcome = 'void' then round(pos.cost_basis / pos.shares, 4) when pos.side = p_outcome then 1 else 0 end,
@@ -982,6 +1038,10 @@ begin
   update public.portfolios set cash = cash + p_returned, updated_at = now() where user_id = p_user;
   insert into public.game_rounds (user_id, run, game, staked, returned, net, detail)
   values (p_user, p_run, p_game, p_staked, p_returned, p_returned - p_staked, p_detail);
+  insert into private.game_totals as t (user_id, run, game, rounds, wagered, net, best)
+  values (p_user, p_run, p_game, 1, p_staked, p_returned - p_staked, p_returned - p_staked)
+  on conflict (user_id, run, game) do update set
+    rounds = t.rounds + 1, wagered = t.wagered + excluded.wagered, net = t.net + excluded.net, best = greatest(t.best, excluded.best);
 end $$;
 
 create or replace function private.game_activity(p_user uuid, p_game text, p_staked numeric, p_net numeric, p_detail text) returns void
@@ -1421,8 +1481,8 @@ end $$;
 -- ---------------------------------------------------------------------------
 
 /** Every player with overall, market and game figures for their current run. */
-create or replace function public.leaderboard() returns jsonb
-language sql stable security definer set search_path = '' as $$
+create or replace function private.leaderboard_rows() returns jsonb
+language sql stable set search_path = '' as $$
   with pf as (
     select p.*, pr.username::text as username from public.portfolios p join public.profiles pr on pr.id = p.user_id
   ),
@@ -1436,13 +1496,13 @@ language sql stable security definer set search_path = '' as $$
     where h.type in ('sell', 'settlement') group by h.user_id
   ),
   games as (
-    select g.user_id, count(*) as rounds, sum(g.net) as net, sum(g.staked) as wagered, greatest(max(g.net), 0) as best
-    from public.game_rounds g join public.portfolios p on p.user_id = g.user_id and g.run = p.run group by g.user_id
+    select g.user_id, sum(g.rounds) as rounds, sum(g.net) as net, sum(g.wagered) as wagered, greatest(max(g.best), 0) as best
+    from private.game_totals g join public.portfolios p on p.user_id = g.user_id and g.run = p.run group by g.user_id
   ),
   fav as (
     select distinct on (g.user_id) g.user_id, g.game
-    from public.game_rounds g join public.portfolios p on p.user_id = g.user_id and g.run = p.run
-    group by g.user_id, g.game order by g.user_id, count(*) desc
+    from private.game_totals g join public.portfolios p on p.user_id = g.user_id and g.run = p.run
+    where g.rounds > 0 order by g.user_id, g.rounds desc
   ),
   rows as (
     select pf.*, coalesce(pos.value, 0) as value, coalesce(pos.cost, 0) as cost, coalesce(pos.open, 0) as open,
@@ -1466,6 +1526,21 @@ language sql stable security definer set search_path = '' as $$
   ) order by net_worth desc), '[]')
   from (select * from rows order by net_worth desc limit 500) r
 $$;
+
+/** Every player's standings. Anyone can call it, so the answer is reused for 10 seconds. */
+create or replace function public.leaderboard() returns jsonb
+language plpgsql volatile security definer set search_path = '' as $$
+declare c private.leaderboard_cache;
+begin
+  select * into c from private.leaderboard_cache where id = 1;
+  if c.at > clock_timestamp() - interval '10 seconds' then return c.data; end if;
+  -- One caller rebuilds it; the rest get the last copy meanwhile.
+  if c.data is not null and not pg_try_advisory_xact_lock(hashtext('leaderboard')) then return c.data; end if;
+  c.data := private.leaderboard_rows();
+  insert into private.leaderboard_cache (id, data, at) values (1, c.data, clock_timestamp())
+  on conflict (id) do update set data = excluded.data, at = excluded.at;
+  return c.data;
+end $$;
 
 -- ---------------------------------------------------------------------------
 -- Sync job entry points (service role only)
@@ -1504,7 +1579,12 @@ language plpgsql volatile security definer set search_path = '' as $$
 declare k text; v jsonb; n int := 0;
 begin
   for k, v in select * from jsonb_each(p_results) loop
-    n := n + private.resolve(k, coalesce(v ->> 'outcome', v #>> '{}'), coalesce(v ->> 'source', 'sync'), v ->> 'title');
+    -- One bad market must not roll back every other settlement in the run.
+    begin
+      n := n + private.resolve(k, coalesce(v ->> 'outcome', v #>> '{}'), coalesce(v ->> 'source', 'sync'), v ->> 'title');
+    exception when others then
+      raise warning 'settling % failed: %', k, sqlerrm;
+    end;
   end loop;
   return n;
 end $$;
@@ -1805,9 +1885,12 @@ language plpgsql volatile security definer set search_path = '' as $$
 declare v_user uuid := private.uid(); s jsonb; t int;
 begin
   perform private.rate_limit(v_user, 'mines', 120);
+  -- Every check happens before the mines are placed: an error after that would undo a losing
+  -- round and give the bet back, which would let players test tiles for free.
   if coalesce(array_length(p_tiles, 1), 0) < 1 or array_length(p_tiles, 1) > 25 - coalesce(p_mines, 1)
+    or exists (select 1 from unnest(p_tiles) x where x is null or x < 0 or x > 24)
     or (select count(distinct x) from unnest(p_tiles) x) <> array_length(p_tiles, 1) then
-    raise exception 'Pick between 1 and % different tiles.', 25 - coalesce(p_mines, 1);
+    raise exception 'Pick between 1 and % different tiles from 0 to 24.', 25 - coalesce(p_mines, 1);
   end if;
   s := private.mines_begin(v_user, p_amount, p_mines);
   foreach t in array p_tiles loop
@@ -1973,6 +2056,17 @@ end $$;
 -- ---------------------------------------------------------------------------
 
 revoke all on all functions in schema private from public;
+
+-- The app talks to the REST API only. GraphQL can run several game calls in one
+-- transaction, which would let a later call undo an earlier losing one, so it's off.
+do $$ begin
+  execute 'drop extension if exists pg_graphql';
+exception when others then
+  begin
+    execute 'revoke usage on schema graphql, graphql_public from anon, authenticated';
+  exception when others then null;
+  end;
+end $$;
 revoke execute on all functions in schema public from public, anon, authenticated;
 
 grant execute on function public.username_available(text) to anon, authenticated;

@@ -21,16 +21,21 @@ const cooldownUntil = new Map()
 const requestLog = new Map()
 
 const WINDOW_MS = 10000
-const MAX_REQUESTS_PER_WINDOW = 30
+let maxRequestsPerWindow = 30
 const DEFAULT_COOLDOWN_MS = 60000
 const MEMO_LIMIT = 100
 
 function withinBudget(host, now) {
   const log = (requestLog.get(host) ?? []).filter((t) => now - t < WINDOW_MS)
   requestLog.set(host, log)
-  if (log.length >= MAX_REQUESTS_PER_WINDOW) return false
+  if (log.length >= maxRequestsPerWindow) return false
   log.push(now)
   return true
+}
+
+/** Raises the per-host budget for trusted batch jobs (the sync script), which make more calls than a browser tab. */
+export function setRequestBudget(max) {
+  maxRequestsPerWindow = max
 }
 
 export async function fetchJson(url, { timeoutMs = REQUEST_TIMEOUT_MS, memoMs = 4000 } = {}) {

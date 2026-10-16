@@ -105,17 +105,19 @@ export default function DicePage() {
   /** One roll: asks for the result, shows it on the track, then pays. */
   const playOnce = async (amount, quick) => {
     if (!(amount >= 0.1)) throw new Error('Enter a bet of at least $0.10.')
-    if (amount > useAccountStore.getState().portfolio.cash + 1e-9) throw new Error(`Your balance is ${formatCurrency(useAccountStore.getState().portfolio.cash)}.`)
+    const cash = useAccountStore.getState().portfolio?.cash ?? 0
+    if (amount > cash + 1e-9) throw new Error(`Your balance is ${formatCurrency(cash)}.`)
     const res = await rollDice({ amount, target, over })
     const id = place({ game: 'dice', staked: amount, returned: res.payout, detail: diceDetail({ roll: res.roll, target, over, mult: res.multiplier }) })
-    if (!id) throw new Error('Not enough chips.')
     if (res.portfolio) holdServerPortfolio(res.portfolio)
+    // The server already settled the roll; if the local balance drifted, show it and take the server's figures.
+    if (!id && !res.portfolio) throw new Error('Not enough chips.')
     setLast(res)
     setRecent((r) => [{ roll: res.roll, win: res.win, key: `${res.nonce}-${Date.now()}` }, ...r].slice(0, 12))
     if (res.win) sounds.gem()
     else sounds.click()
     await sleep(quick ? 180 : 320)
-    finish(id)
+    if (id) finish(id)
     return { net: roundMoney(res.payout - amount) }
   }
 

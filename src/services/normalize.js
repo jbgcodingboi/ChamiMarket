@@ -45,8 +45,10 @@ const toImage = (v) => (typeof v === 'string' && /^https:\/\//.test(v) ? v : nul
 const cleanText = (v, max = 4000) => (typeof v === 'string' ? v.trim().slice(0, max) : '')
 
 /** Detects a clear winner on a closed market from settled outcome prices. */
-function detectResolvedOutcome({ closed, yesPrice, noPrice }) {
+function detectResolvedOutcome({ closed, yesPrice, noPrice, uma }) {
   if (!closed) return null
+  // A closed market can still be proposed or disputed on UMA; only a final result counts.
+  if (typeof uma === 'string' && uma && uma !== 'resolved') return null
   if (yesPrice >= 0.99 && noPrice <= 0.01) return 'yes'
   if (noPrice >= 0.99 && yesPrice <= 0.01) return 'no'
   // Polymarket settles canceled events 50-50; here that refunds at cost.
@@ -110,7 +112,7 @@ export function normalizeGammaMarket(raw, category, { league = null } = {}) {
     active: raw.active !== false,
     closed,
     acceptingOrders: raw.acceptingOrders !== false,
-    resolvedOutcome: detectResolvedOutcome({ closed, yesPrice, noPrice }),
+    resolvedOutcome: detectResolvedOutcome({ closed, yesPrice, noPrice, uma: raw.umaResolutionStatus }),
     source: 'live',
   }
 }

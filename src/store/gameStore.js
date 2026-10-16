@@ -18,6 +18,7 @@ const isPending = (b) => isPlainObject(b) && typeof b.id === 'string' && typeof 
 const isGames = (g) =>
   isPlainObject(g) &&
   Array.isArray(g.history) &&
+  g.history.every((e) => isPlainObject(e) && Number.isFinite(e.staked) && Number.isFinite(e.net)) &&
   isPlainObject(g.stats) &&
   Object.values(g.stats).every(isStat) &&
   Array.isArray(g.pending) &&

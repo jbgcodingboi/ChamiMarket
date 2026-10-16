@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import * as backend from '../services/backend/api.js'
 import { BACKEND_ENABLED } from '../services/backend/config.js'
 import { LEADERBOARD_FILL } from '../config.js'
@@ -114,33 +114,48 @@ function useServerLeaderboard() {
   const latest = useFeedStore((s) => `${s.real[0]?.id}:${s.games[0]?.id}`)
   const portfolio = useAccountStore((s) => s.portfolio)
   const [tick, setTick] = useState(0)
+  const lastFetch = useRef(0)
   useEffect(() => {
     const t = setInterval(() => setTick((n) => n + 1), 30000)
-    return () => clearInterval(t)
+    // Catch up as soon as a hidden tab comes back.
+    const onVisible = () => document.visibilityState === 'visible' && setTick((n) => n + 1)
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      clearInterval(t)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
   }, [])
   useEffect(() => {
     let live = true
-    backend
-      .leaderboard()
-      .then((list) => {
-        if (!live) return
-        setRows(
-          (list ?? []).map((r) => ({
-            ...r,
-            netWorth: num(r.netWorth),
-            pnl: num(r.pnl),
-            pnlPct: num(r.pnlPct),
-            marketPnl: num(r.marketPnl),
-            realized: num(r.realized),
-            unrealized: num(r.unrealized),
-            winRate: num(r.winRate),
-            games: { ...r.games, net: num(r.games.net), wagered: num(r.games.wagered), best: num(r.games.best) },
-          })),
-        )
-      })
-      .catch(() => {})
+    const load = () => {
+      if (document.visibilityState === 'hidden') return
+      lastFetch.current = Date.now()
+      backend
+        .leaderboard()
+        .then((list) => {
+          if (!live) return
+          setRows(
+            (Array.isArray(list) ? list : []).map((r) => ({
+              ...r,
+              netWorth: num(r.netWorth),
+              pnl: num(r.pnl),
+              pnlPct: num(r.pnlPct),
+              marketPnl: num(r.marketPnl),
+              realized: num(r.realized),
+              unrealized: num(r.unrealized),
+              winRate: num(r.winRate),
+              games: { ...r.games, net: num(r.games?.net), wagered: num(r.games?.wagered), best: num(r.games?.best) },
+            })),
+          )
+        })
+        .catch(() => {})
+    }
+    // A busy feed changes `latest` often; reload at most every 10 seconds.
+    const wait = lastFetch.current + 10000 - Date.now()
+    const timer = wait > 0 ? setTimeout(load, wait) : (load(), null)
     return () => {
       live = false
+      clearTimeout(timer)
     }
   }, [latest, portfolio, tick])
   // Filler waits for the first server answer, so real players don't pop in over it.

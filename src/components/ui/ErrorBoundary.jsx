@@ -20,7 +20,7 @@ export default class ErrorBoundary extends Component {
         </span>
         <h1 className="mt-4 text-xl font-semibold">Something went wrong</h1>
         <p className="mt-2 text-sm text-muted">
-          This page hit an unexpected error. Your paper portfolio is saved locally and is not affected.
+          This page hit an unexpected error. Your paper portfolio is saved and is not affected.
         </p>
         <div className="mt-6 flex justify-center gap-3">
           <button type="button" className="btn btn-ghost" onClick={() => this.setState({ error: null })}>

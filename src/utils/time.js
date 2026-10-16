@@ -18,7 +18,8 @@ export function etRange(start, end) {
 }
 
 /** "9 AM" or "9:30 AM". */
-export const etHour = (ms) => etTime(ms).replace(':00 ', ' ')
+// Newer Intl puts a narrow no-break space before AM/PM, so match any space.
+export const etHour = (ms) => etTime(ms).replace(/:00(?=\s)/u, '')
 
 /** "Fri, Oct 16" for a YYYY-MM-DD date. */
 export const etDayLabel = (date) => dayFmt.format(new Date(`${date}T12:00:00Z`))

@@ -75,7 +75,8 @@ export async function logIn({ identifier, password }) {
 
 export async function logOut() {
   const sb = await client()
-  await sb.auth.signOut().catch(() => {})
+  // This device only: logging out on a phone shouldn't sign the laptop out too.
+  await sb.auth.signOut({ scope: 'local' }).catch(() => {})
 }
 
 /** The signed-in Supabase user from the saved session, or null. */

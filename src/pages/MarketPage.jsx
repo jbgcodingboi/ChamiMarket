@@ -41,7 +41,7 @@ export default function MarketPage() {
             </Link>
           }
         >
-          This market isn't in the current Sports or Top Politics listings. It may have closed or dropped out of the
+          This market isn't in the current listings. It may have closed or dropped out of the
           live feed.
         </EmptyState>
       </div>
