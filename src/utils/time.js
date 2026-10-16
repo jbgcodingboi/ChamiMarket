@@ -10,6 +10,16 @@ export const etDate = (ms) => dateFmt.format(new Date(ms))
 /** "3:15 PM" in Eastern time. */
 export const etTime = (ms) => timeFmt.format(new Date(ms))
 
+/** "8:15–8:30 AM" (or "11:45 AM–12:00 PM" across noon) for a time range. */
+export function etRange(start, end) {
+  const [a, b] = [etTime(start), etTime(end)]
+  const [am, bm] = [a.slice(-2), b.slice(-2)]
+  return am === bm ? `${a.slice(0, -3)}–${b}` : `${a}–${b}`
+}
+
+/** "9 AM" or "9:30 AM". */
+export const etHour = (ms) => etTime(ms).replace(':00 ', ' ')
+
 /** "Fri, Oct 16" for a YYYY-MM-DD date. */
 export const etDayLabel = (date) => dayFmt.format(new Date(`${date}T12:00:00Z`))
 

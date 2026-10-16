@@ -78,7 +78,7 @@ export function buildWeatherMarkets(station, periods, now) {
         markets.push(
           quickMarket({
             id: highId(station.id, date, line),
-            title: `${station.name} high of ${line}°F or warmer ${dayIndex ? 'tomorrow' : 'today'}?`,
+            title: `${station.name} hits ${line}°F ${dayIndex ? 'tomorrow' : 'today'}?`,
             eventTitle: `${station.place} · ${etDayLabel(date)} · forecast high ${fc.high}°F`,
             description: `Resolves Yes if the official maximum temperature for ${station.place} on ${etDayLabel(date)} is ${line}°F or higher, per the National Weather Service Daily Climate Report. A Yes can settle as soon as the 4 PM report shows the high reached; otherwise the market settles from the final report issued overnight. Trading closes at 11:00 AM ET that day. Odds come from the NWS forecast high with a typical forecast error of about ${sigma}°F.`,
             endDate: highClose,
@@ -95,7 +95,7 @@ export function buildWeatherMarkets(station, periods, now) {
       markets.push(
         quickMarket({
           id: precipId(station.id, date),
-          title: `Measurable rain or snow at ${station.name} ${dayIndex ? 'tomorrow' : 'today'}?`,
+          title: `Rain or snow at ${station.name} ${dayIndex ? 'tomorrow' : 'today'}?`,
           eventTitle: `${station.place} · ${etDayLabel(date)} · ${Math.round(fc.popDay * 100)}% chance in the daytime forecast`,
           description: `Resolves Yes if the National Weather Service Daily Climate Report for ${station.place} records at least 0.01 inches of precipitation (rain or melted snow) on ${etDayLabel(date)}. A trace does not count. A Yes can settle from the 4 PM report; a No settles from the final report issued overnight. Trading closes at 7:00 AM ET that day. Odds come from the NWS chance of precipitation.`,
           endDate: precipClose,
