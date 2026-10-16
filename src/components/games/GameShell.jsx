@@ -7,6 +7,7 @@ import { flush, runGames, useChips, useGames } from '../../store/gameStore.js'
 import { useUiStore } from '../../store/uiStore.js'
 import { formatCurrency, formatRelativeTime, formatSignedCurrency, pnlTone } from '../../utils/format.js'
 import EmptyState from '../ui/EmptyState.jsx'
+import GameFeed from './GameFeed.jsx'
 import { ChevronLeftIcon, DiceIcon } from '../ui/Icons.jsx'
 
 /** Cash available to bet, which is the same cash the portfolio trades with. */
@@ -132,6 +133,7 @@ export default function GameShell({ game, title, subtitle, children, rules }) {
           <aside className="space-y-4" aria-label="Funds and history">
             <BalanceCard />
             <GameStats game={game} />
+            <GameFeed />
           </aside>
         </div>
       ) : (
