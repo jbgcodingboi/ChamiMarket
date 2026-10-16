@@ -102,7 +102,7 @@ the shares you hold. Orders execute at the displayed outcome price (there is no 
 - The last good listing is cached in `localStorage` for instant startup (used if under 24 hours old).
 - **Fallback 1, snapshot**: if the browser can't reach the API (timeouts, CORS, network policy, regional blocks,
   rate limits, malformed responses), the app loads `data/snapshot.json` from its own origin and the header shows
-  **Delayed odds**. The deploy workflow rebuilds the site every 15 minutes with a fresh snapshot fetched server-side by
+  **Market odds**. The deploy workflow rebuilds the site every 15 minutes with a fresh snapshot fetched server-side by
   `scripts/build-snapshot.mjs`, including the results of markets closed in the last 30 days, so held positions
   still settle.
 - **Fallback 2, demo data**: with no snapshot either, the app switches to a bundled dataset (24 Sports and 12

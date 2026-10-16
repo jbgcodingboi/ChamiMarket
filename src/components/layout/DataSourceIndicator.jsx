@@ -6,7 +6,7 @@ const STATES = {
   live: { label: 'Live odds', short: 'Live', dot: 'bg-yes', text: 'text-muted' },
   stale: { label: 'Reconnecting', short: 'Reconnecting', dot: 'bg-warn', text: 'text-warn' },
   cached: { label: 'Cached odds', short: 'Cached', dot: 'bg-warn', text: 'text-warn' },
-  snapshot: { label: 'Delayed odds', short: 'Delayed', dot: 'bg-warn', text: 'text-warn' },
+  snapshot: { label: 'Market odds', short: 'Odds', dot: 'bg-yes', text: 'text-muted' },
   mock: { label: 'Offline demo data', short: 'Demo data', dot: 'bg-subtle', text: 'text-muted' },
   loading: { label: 'Connecting', short: 'Connecting', dot: 'bg-subtle animate-pulse', text: 'text-muted' },
 }
@@ -22,7 +22,7 @@ export default function DataSourceIndicator({ compact = false }) {
     key === 'mock'
       ? 'Live market data is unreachable, so bundled demo markets are shown. Trading works the same.'
       : key === 'snapshot'
-        ? `This browser can't reach the live API, so odds come from the site's scheduled update (${formatRelativeTime(lastUpdated, now)}).`
+        ? `Odds refresh every few minutes from the site's scheduled update (updated ${formatRelativeTime(lastUpdated, now)}).`
         : lastUpdated
           ? `Prices updated ${formatRelativeTime(lastUpdated, now)}`
         : 'Fetching live market data'
