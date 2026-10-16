@@ -3,7 +3,9 @@ import GameShell from '../../components/games/GameShell.jsx'
 import PlinkoBoard from '../../components/games/plinko/PlinkoBoard.jsx'
 import { useDocumentTitle } from '../../hooks/useDocumentTitle.js'
 import { bucketOf, bucketProbability, dropPath, expectedReturn, MULTIPLIERS, RISKS, ROW_OPTIONS } from '../../games/plinko.js'
-import { finish, place, useChips } from '../../store/gameStore.js'
+import { playPlinko } from '../../services/backend/api.js'
+import { BACKEND_ENABLED } from '../../services/backend/config.js'
+import { finish, holdServerPortfolio, place, useChips } from '../../store/gameStore.js'
 import { toast } from '../../store/toastStore.js'
 import { roundMoney } from '../../utils/math.js'
 import { formatCurrency } from '../../utils/format.js'
@@ -66,6 +68,7 @@ export default function PlinkoPage() {
   const balance = useChips()
   const board = useRef(null)
   const auto = useRef(null)
+  const queued = useRef([])
   const [betText, setBetText] = useState('10')
   const bet = roundMoney(Number(betText) || 0)
   const [rows, setRows] = useState(16)
@@ -79,20 +82,51 @@ export default function PlinkoPage() {
 
   useEffect(() => () => clearInterval(auto.current), [])
 
-  const dropOne = () => {
-    const path = dropPath(rows)
+  /** Drops one ball: a fresh random path, or one the server already played (backend mode). */
+  const dropOne = (played) => {
+    const path = played?.path ?? dropPath(rows)
     const bucket = bucketOf(path)
     const mult = multipliers[bucket]
-    const id = place({ game: 'plinko', staked: bet, returned: roundMoney(bet * mult), detail: `${mult}× · ${rows} rows, ${RISK_LABEL[risk].toLowerCase()} risk` })
+    const returned = played ? roundMoney(Number(played.returned)) : roundMoney(bet * mult)
+    const id = place({ game: 'plinko', staked: bet, returned, detail: `${mult}× · ${rows} rows, ${RISK_LABEL[risk].toLowerCase()} risk` })
     if (!id) return false
     setInFlight((n) => n + 1)
     board.current?.drop({ id, path })
     return true
   }
 
+  /** Backend mode: the server plays every ball at once; they are then dropped here one by one. */
+  const startRemote = async () => {
+    setDropping(true)
+    let res
+    try {
+      res = await playPlinko({ amount: bet, rows, risk, balls: count })
+    } catch (err) {
+      setDropping(false)
+      return toast({ tone: 'error', title: 'Drop not accepted', description: err.message })
+    }
+    const queue = [...res.balls]
+    queued.current = queue
+    const next = () => {
+      const ball = queue.shift()
+      if (ball) dropOne(ball)
+      if (!queue.length) {
+        clearInterval(auto.current)
+        setDropping(false)
+      }
+    }
+    next()
+    holdServerPortfolio(res.portfolio)
+    if (queue.length) auto.current = setInterval(next, AUTO_GAP_MS)
+  }
+
   const start = () => {
     if (!(bet >= 0.1)) return toast({ tone: 'error', title: 'Enter a bet of at least $0.10' })
     if (bet > balance) return toast({ tone: 'error', title: 'Not enough chips', description: `Your balance is ${formatCurrency(balance)}.` })
+    if (BACKEND_ENABLED) {
+      if (bet * count > balance) return toast({ tone: 'error', title: 'Not enough chips', description: `${count} balls need ${formatCurrency(bet * count)}.` })
+      return startRemote()
+    }
     if (!dropOne()) return
     if (count === 1) return
     let left = count - 1
@@ -115,6 +149,9 @@ export default function PlinkoPage() {
   const stop = () => {
     clearInterval(auto.current)
     setDropping(false)
+    // Backend mode: the server already played the rest, so drop them all now.
+    const rest = queued.current.splice(0)
+    for (const ball of rest) dropOne(ball)
   }
 
   const onLand = (id, bucket) => {

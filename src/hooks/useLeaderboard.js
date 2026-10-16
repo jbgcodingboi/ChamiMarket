@@ -1,4 +1,7 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import * as backend from '../services/backend/api.js'
+import { BACKEND_ENABLED } from '../services/backend/config.js'
+import { useFeedStore } from '../store/feedStore.js'
 import { PRO_STARTING_EQUITY, PRO_TRADERS, simGameStats } from '../services/mockTraders.js'
 import { readAccounts, readPortfolio, useAccountStore } from '../store/accountStore.js'
 import { getMarket, useMarketStore } from '../store/marketStore.js'
@@ -25,7 +28,7 @@ function proTraderEquity(trader, holdings, drift) {
  * against the run's starting cash; markets PnL is that minus game results,
  * so the two boards always add up to the overall one. Rows come unsorted.
  */
-export function useLeaderboard() {
+function useLocalLeaderboard() {
   const tick = useMarketStore((s) => s.tick)
   const resolutions = useResolutionStore((s) => s.resolutions)
   const portfolio = useAccountStore((s) => s.portfolio)
@@ -80,3 +83,46 @@ export function useLeaderboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tick, resolutions, portfolio, accountsVersion, holdings, drift, simTrades])
 }
+
+const num = (v) => (v === null || v === undefined ? null : Number(v))
+
+/** Backend mode: every player's standings from the server, refreshed every 30 seconds and on new activity. */
+function useServerLeaderboard() {
+  const [rows, setRows] = useState([])
+  const latest = useFeedStore((s) => s.real[0]?.id)
+  const portfolio = useAccountStore((s) => s.portfolio)
+  const [tick, setTick] = useState(0)
+  useEffect(() => {
+    const t = setInterval(() => setTick((n) => n + 1), 30000)
+    return () => clearInterval(t)
+  }, [])
+  useEffect(() => {
+    let live = true
+    backend
+      .leaderboard()
+      .then((list) => {
+        if (!live) return
+        setRows(
+          (list ?? []).map((r) => ({
+            ...r,
+            netWorth: num(r.netWorth),
+            pnl: num(r.pnl),
+            pnlPct: num(r.pnlPct),
+            marketPnl: num(r.marketPnl),
+            realized: num(r.realized),
+            unrealized: num(r.unrealized),
+            winRate: num(r.winRate),
+            games: { ...r.games, net: num(r.games.net), wagered: num(r.games.wagered), best: num(r.games.best) },
+          })),
+        )
+      })
+      .catch(() => {})
+    return () => {
+      live = false
+    }
+  }, [latest, portfolio, tick])
+  return rows
+}
+
+/** Leaderboard rows: real players from the server in backend mode, else local accounts plus simulated pros. */
+export const useLeaderboard = BACKEND_ENABLED ? useServerLeaderboard : useLocalLeaderboard

@@ -117,10 +117,31 @@ export function finish(id) {
   }
   const { portfolio, entry } = record(rest, bet)
   commit(portfolio)
+  adoptWhenIdle()
   return entry
 }
 
 /** Pays out every held round (for one game, or all). */
 export function flush(game) {
   for (const b of gamesOf(current()).pending) if (!game || b.game === game) finish(b.id)
+}
+
+/*
+ * Backend mode: the server has already settled the round, but the screen
+ * still animates it with place()/finish() on the in-memory portfolio. The
+ * server's portfolio is held here and replaces the animated one as soon as
+ * nothing is left in flight, so the final numbers are always the server's.
+ */
+let serverPortfolio = null
+
+export function holdServerPortfolio(raw) {
+  serverPortfolio = raw
+  adoptWhenIdle()
+}
+
+function adoptWhenIdle() {
+  if (serverPortfolio && !gamesOf(current()).pending.length) {
+    useAccountStore.getState().adoptRemote(serverPortfolio)
+    serverPortfolio = null
+  }
 }
