@@ -97,6 +97,38 @@ function ChickenArt() {
   )
 }
 
+function LimboArt() {
+  return (
+    <svg viewBox="0 0 160 100" className="h-24 w-40" aria-hidden="true">
+      <path d="M10 90 Q 90 88 150 12" fill="none" stroke="#22c55e" strokeWidth="5" strokeLinecap="round" className="transition duration-700 group-hover:opacity-60" />
+      <circle cx="150" cy="12" r="7" fill="#fbbf24" />
+      <text x="62" y="62" fontSize="26" fontWeight="900" fill="#fff" fontFamily="ui-monospace, monospace" className="transition duration-500 group-hover:fill-[#fbbf24]">
+        2.48×
+      </text>
+    </svg>
+  )
+}
+
+function BoneyardArt() {
+  const reels = [['🤠', 'A'], ['K', '⭐', 'Q'], ['W', 'W', 'W'], ['🃏', 'J', '💀'], ['⚰️']]
+  return (
+    <div className="flex items-center gap-1" aria-hidden="true">
+      {reels.map((cells, r) => (
+        <div key={r} className={`flex flex-col gap-1 transition duration-500 ${r % 2 ? 'group-hover:-translate-y-1' : 'group-hover:translate-y-1'}`}>
+          {cells.map((c, i) => (
+            <span
+              key={i}
+              className={`flex size-7 items-center justify-center rounded-md text-sm font-black ${c === 'W' ? 'bg-amber-500/40 text-[9px] text-amber-200' : 'bg-black/40 text-white'}`}
+            >
+              {c === 'W' ? 'WILD' : c}
+            </span>
+          ))}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 const GAMES = [
   {
     to: '/games/roulette',
@@ -146,7 +178,25 @@ const GAMES = [
     facts: ['Four difficulties', '98% return', 'Provably fair'],
     Art: ChickenArt,
   },
+  {
+    to: '/games/limbo',
+    id: 'limbo',
+    title: 'Limbo & Crash',
+    blurb: 'Pick a target and hope the draw reaches it, or watch the multiplier climb and cash out before it crashes.',
+    facts: ['Up to 1,000,000×', '99% return', 'Provably fair'],
+    Art: LimboArt,
+  },
+  {
+    to: '/games/boneyard',
+    id: 'boneyard',
+    title: 'Boneyard',
+    blurb: 'A brutal western ways slot with Nudge and Split Wilds, two free spin modes and an R.I.P. rule. Huge swings.',
+    facts: ['Up to 300,000×', 'About 96% return', 'Provably fair'],
+    Art: BoneyardArt,
+  },
 ]
+
+const addStats = (a, b) => (a ? { rounds: a.rounds + b.rounds, wagered: a.wagered + b.wagered } : b)
 
 const RETURN_HINT = 'Average share of every bet paid back over a very large number of rounds'
 
@@ -188,14 +238,15 @@ export default function GamesPage() {
     <div className="mx-auto max-w-7xl px-4 py-6">
       <h1 className="text-2xl font-bold tracking-tight">Games</h1>
       <p className="mt-1 max-w-2xl text-sm text-muted">
-        Six casino games played with your portfolio cash. Every win and loss moves your net worth and leaderboard rank, just like a trade. Play money
+        Eight casino games played with your portfolio cash. Every win and loss moves your net worth and leaderboard rank, just like a trade. Play money
         only.
       </p>
       <div className="mt-5 grid gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
         <div className="min-w-0">
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {GAMES.map(({ to, id, title, blurb, facts, Art }) => {
-              const s = stats[id]
+              // The Limbo & Crash card counts both modes.
+              const s = id === 'limbo' && stats.crash ? addStats(stats.limbo, stats.crash) : stats[id]
               return (
                 <Link
                   key={to}
