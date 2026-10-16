@@ -14,6 +14,10 @@ const HomePage = lazy(() => import('./pages/HomePage.jsx'))
 const MarketPage = lazy(() => import('./pages/MarketPage.jsx'))
 const PortfolioPage = lazy(() => import('./pages/PortfolioPage.jsx'))
 const LeaderboardPage = lazy(() => import('./pages/LeaderboardPage.jsx'))
+const GamesPage = lazy(() => import('./pages/games/GamesPage.jsx'))
+const RoulettePage = lazy(() => import('./pages/games/RoulettePage.jsx'))
+const BlackjackPage = lazy(() => import('./pages/games/BlackjackPage.jsx'))
+const PlinkoPage = lazy(() => import('./pages/games/PlinkoPage.jsx'))
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage.jsx'))
 
 function AppRoutes() {
@@ -26,6 +30,10 @@ function AppRoutes() {
           <Route path="/market/:id" element={<MarketPage />} />
           <Route path="/portfolio" element={<PortfolioPage />} />
           <Route path="/leaderboard" element={<LeaderboardPage />} />
+          <Route path="/games" element={<GamesPage />} />
+          <Route path="/games/roulette" element={<RoulettePage />} />
+          <Route path="/games/blackjack" element={<BlackjackPage />} />
+          <Route path="/games/plinko" element={<PlinkoPage />} />
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </Suspense>

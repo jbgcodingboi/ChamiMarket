@@ -2,7 +2,7 @@ import { NavLink } from 'react-router-dom'
 import { useAccountStore } from '../../store/accountStore.js'
 import { useUiStore } from '../../store/uiStore.js'
 import SearchBar from '../market/SearchBar.jsx'
-import { BriefcaseIcon, GridIcon, TrophyIcon } from '../ui/Icons.jsx'
+import { BriefcaseIcon, DiceIcon, GridIcon, TrophyIcon } from '../ui/Icons.jsx'
 import DataSourceIndicator from './DataSourceIndicator.jsx'
 import Logo from './Logo.jsx'
 import PaperBadge from './PaperBadge.jsx'
@@ -12,6 +12,7 @@ const NAV = [
   { to: '/', label: 'Markets', icon: GridIcon, end: true },
   { to: '/leaderboard', label: 'Leaderboard', icon: TrophyIcon },
   { to: '/portfolio', label: 'Portfolio', icon: BriefcaseIcon },
+  { to: '/games', label: 'Games', icon: DiceIcon },
 ]
 
 const navClass = ({ isActive }) =>
