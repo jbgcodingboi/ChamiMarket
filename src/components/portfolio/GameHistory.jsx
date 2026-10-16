@@ -3,8 +3,8 @@ import { Link } from 'react-router-dom'
 import { formatCurrency, formatDateTime, formatSignedCurrency, pnlTone } from '../../utils/format.js'
 import EmptyState from '../ui/EmptyState.jsx'
 import { DiceIcon } from '../ui/Icons.jsx'
+import { GAME_NAME } from '../../games/names.js'
 
-const GAME = { roulette: 'Roulette', blackjack: 'Blackjack', plinko: 'Plinko' }
 const PAGE = 50
 
 /** Rounds played in Games, paid from and into the portfolio's cash. */
@@ -45,7 +45,7 @@ export default function GameHistory({ history }) {
               <td className="px-4 py-3 whitespace-nowrap text-muted">{formatDateTime(h.ts)}</td>
               <td className="px-2 py-3 font-medium">
                 <Link to={`/games/${h.game}`} className="hover:underline">
-                  {GAME[h.game] ?? h.game}
+                  {GAME_NAME[h.game] ?? h.game}
                 </Link>
               </td>
               <td className="px-2 py-3 text-muted">{h.detail}</td>

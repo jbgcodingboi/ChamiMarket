@@ -189,3 +189,19 @@ export async function subscribeActivity(onEntry) {
     .subscribe()
   return () => sb.removeChannel(channel)
 }
+
+// Provably fair games ------------------------------------------------------------
+
+export const fairState = () => rpc('fair_state')
+export const fairRotate = (clientSeed) => rpc('fair_rotate', { p_client_seed: clientSeed })
+export const playDice = ({ amount, target, over }) => rpc('play_dice', { p_amount: amount, p_target: target, p_over: over })
+export const minesState = () => rpc('mines_state')
+export const minesStart = ({ amount, mines }) => rpc('mines_start', { p_amount: amount, p_mines: mines })
+export const minesReveal = (tile) => rpc('mines_reveal', { p_tile: tile })
+export const minesCashout = () => rpc('mines_cashout')
+export const minesAuto = ({ amount, mines, tiles }) => rpc('mines_auto', { p_amount: amount, p_mines: mines, p_tiles: tiles })
+export const chickenState = () => rpc('chicken_state')
+export const chickenStart = ({ amount, difficulty }) => rpc('chicken_start', { p_amount: amount, p_difficulty: difficulty })
+export const chickenStep = () => rpc('chicken_step')
+export const chickenCashout = () => rpc('chicken_cashout')
+export const chickenAuto = ({ amount, difficulty, target }) => rpc('chicken_auto', { p_amount: amount, p_difficulty: difficulty, p_target: target })

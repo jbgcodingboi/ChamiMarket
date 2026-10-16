@@ -7,9 +7,9 @@ import { useUiStore } from '../../store/uiStore.js'
 import { formatCurrency, formatPercent, formatSignedCurrency, pnlTone } from '../../utils/format.js'
 import Tabs from '../ui/Tabs.jsx'
 import SimTag from './SimTag.jsx'
+import { GAME_NAME } from '../../games/names.js'
 
 const medal = ['text-warn', 'text-fg/80', 'text-[#c98b5a]']
-const GAME_NAME = { roulette: 'Roulette', blackjack: 'Blackjack', plinko: 'Plinko' }
 const DASH = <span className="text-subtle">—</span>
 
 const signed = (v) => (v === null || v === undefined ? DASH : <span className={pnlTone(v)}>{formatSignedCurrency(v)}</span>)

@@ -229,6 +229,68 @@
   .card-face {
     backface-visibility: hidden;
   }
+  /* Chicken Cross traffic and the chicken itself. */
+  .chicken-car {
+    animation-timing-function: linear;
+    animation-iteration-count: infinite;
+  }
+  .drive-r { animation-name: drive-r; }
+  .drive-l { animation-name: drive-l; }
+  .crash-in-r { animation: crash-in-r 260ms cubic-bezier(0.5, 0, 1, 1) forwards; }
+  .crash-in-l { animation: crash-in-l 260ms cubic-bezier(0.5, 0, 1, 1) forwards; }
+  .chicken-hop { animation: chicken-hop 240ms ease-out; }
+  .chicken-squash { animation: chicken-squash 300ms 200ms ease-out forwards; transform-origin: 50% 90%; }
+  .chicken-cheer { animation: chicken-cheer 700ms ease-in-out infinite; transform-origin: 50% 90%; }
+  .feather { animation: feather 900ms 220ms ease-out forwards; opacity: 0; }
+  .mines-boom { animation: mines-boom 500ms ease-out; }
+  @keyframes drive-r { from { left: -18%; } to { left: 108%; } }
+  @keyframes drive-l { from { left: 108%; } to { left: -18%; } }
+  @keyframes crash-in-r { from { left: -20%; } to { left: calc(50% - 64px); } }
+  @keyframes crash-in-l { from { left: 110%; } to { left: calc(50%); } }
+  @keyframes chicken-hop {
+    0% { transform: translateY(18px) scale(0.95, 1.05); }
+    50% { transform: translateY(-14px) scale(1.04, 0.96); }
+    100% { transform: none; }
+  }
+  @keyframes chicken-squash { to { transform: scale(1.35, 0.35) rotate(-8deg); filter: grayscale(0.6); } }
+  @keyframes chicken-cheer { 0%, 100% { transform: none; } 50% { transform: translateY(-8px) rotate(4deg); } }
+  @keyframes feather {
+    0% { opacity: 1; transform: translate(-50%, -50%) rotate(0); }
+    100% { opacity: 0; transform: translate(calc(-50% + var(--fx)), calc(-50% + var(--fy) + 30px)) rotate(var(--fr)); }
+  }
+  @keyframes mines-boom {
+    0% { transform: scale(0.7); box-shadow: 0 0 0 0 rgb(245 112 60 / 0.8); }
+    60% { transform: scale(1.12); box-shadow: 0 0 0 14px rgb(245 112 60 / 0); }
+    100% { transform: none; }
+  }
+
+  /* Dice slider: an invisible track over the colored bar, with a visible handle. */
+  .dice-range::-webkit-slider-runnable-track { background: transparent; height: 28px; }
+  .dice-range::-moz-range-track { background: transparent; height: 28px; }
+  .dice-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    background: linear-gradient(#f5f5f7, #c9c9d1);
+    border: 3px solid #0d0d0f;
+    box-shadow: 0 2px 8px rgb(0 0 0 / 0.5);
+    cursor: grab;
+  }
+  .dice-range::-moz-range-thumb {
+    width: 26px;
+    height: 26px;
+    border-radius: 8px;
+    background: linear-gradient(#f5f5f7, #c9c9d1);
+    border: 3px solid #0d0d0f;
+    cursor: grab;
+  }
+  .dice-range:disabled::-webkit-slider-thumb { cursor: default; opacity: 0.7; }
+  @media (prefers-reduced-motion: reduce) {
+    .chicken-car { animation-duration: 12s !important; }
+    .chicken-hop, .chicken-cheer, .mines-boom { animation: none; }
+  }
   .tabular {
     font-variant-numeric: tabular-nums;
   }

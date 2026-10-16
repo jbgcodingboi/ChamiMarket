@@ -232,7 +232,7 @@ describe('leaderboard figures', () => {
       expect(simGameStats(t.name)).toEqual(g)
       expect(g.rounds).toBeGreaterThan(0)
       expect(Math.abs(g.net)).toBeLessThan(g.wagered * 0.1)
-      expect(['roulette', 'blackjack', 'plinko']).toContain(g.favorite)
+      expect(['roulette', 'blackjack', 'plinko', 'dice', 'mines', 'chicken']).toContain(g.favorite)
     }
   })
 })
