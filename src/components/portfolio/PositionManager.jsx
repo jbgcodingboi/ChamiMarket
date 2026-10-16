@@ -2,6 +2,7 @@ import { memo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { getMarket, useMarketStore } from '../../store/marketStore.js'
 import { getOutcomePrice } from '../../store/prices.js'
+import { hasEnded } from '../../utils/curation.js'
 import { formatCents, formatCurrency, formatPercent, formatShares, formatSignedCurrency, pnlTone } from '../../utils/format.js'
 import { avgPrice, positionValue, unrealizedPnl } from '../../utils/portfolio.js'
 import { BriefcaseIcon } from '../ui/Icons.jsx'
@@ -22,6 +23,7 @@ function rowData(p) {
     pnl,
     pnlPct: p.costBasis ? (pnl / p.costBasis) * 100 : 0,
     label: market?.labels[p.side],
+    locked: !market || market.closed || hasEnded(market),
   }
 }
 
@@ -46,11 +48,14 @@ function PositionManager({ positions }) {
   }
 
   const rows = positions.map(rowData).sort((a, b) => b.value - a.value)
-  const sellButton = (r) => (
-    <button type="button" className="btn btn-ghost px-3 py-1.5 text-xs" onClick={() => setSelling(r.p)}>
-      Sell / Cash Out
-    </button>
-  )
+  const sellButton = (r) =>
+    r.locked ? (
+      <span className="text-xs whitespace-nowrap text-muted">Awaiting result</span>
+    ) : (
+      <button type="button" className="btn btn-ghost px-3 py-1.5 text-xs" onClick={() => setSelling(r.p)}>
+        Sell / Cash Out
+      </button>
+    )
 
   return (
     <>

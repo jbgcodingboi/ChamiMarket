@@ -11,6 +11,7 @@ import {
 } from '../utils/portfolio.js'
 import { randomId } from '../utils/rng.js'
 import { isPlainObject, readJSON, removeKey, writeJSON } from '../utils/storage.js'
+import { hasEnded } from '../utils/curation.js'
 import { applyResolutions, executeBuy, executeSell, TradeError } from '../utils/trading.js'
 import { displayNameFor, isEmail, validateIdentifier, validatePassword } from '../utils/validation.js'
 import { useFeedStore } from './feedStore.js'
@@ -178,6 +179,7 @@ export const useAccountStore = create((set, get) => ({
       throw new TradeError('This market is resolved. Trading is closed.')
     }
     if (market.acceptingOrders === false) throw new TradeError('Trading is paused on this market.')
+    if (hasEnded(market)) throw new TradeError('This event has ended. Trading is closed until it settles.')
     const price = marketPrice(market, side)
     const { portfolio: next, entry } = executeBuy(portfolio, {
       marketId,
@@ -200,6 +202,7 @@ export const useAccountStore = create((set, get) => ({
       throw new TradeError('This market is resolved. Positions settle automatically.')
     }
     const market = getMarket(marketId)
+    if (market && hasEnded(market)) throw new TradeError('This event has ended. Your position settles automatically.')
     const price = market ? marketPrice(market, side) : null
     const { portfolio: next, entry, preview } = executeSell(portfolio, {
       marketId,

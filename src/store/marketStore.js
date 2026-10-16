@@ -1,20 +1,23 @@
 import { create } from 'zustand'
 import { CATEGORIES, MAX_HELD_MARKET_REFRESH, MAX_KNOWN_MARKETS } from '../config.js'
-import { discoverTagIds, fetchCategoryMarkets, fetchMarketById } from '../services/gamma.js'
+import { fetchCatalog, fetchMarketById } from '../services/gamma.js'
 import { createMockMarkets, isMockId } from '../services/mockData.js'
+import { fetchSnapshot } from '../services/snapshot.js'
+import { curate } from '../utils/curation.js'
 import { clamp, isFiniteNumber } from '../utils/math.js'
 import { isPlainObject, readJSON, writeJSON } from '../utils/storage.js'
 
 const CACHE_KEY = 'markets-cache'
 const KNOWN_KEY = 'markets-known'
 const CACHE_MAX_AGE_MS = 24 * 3600 * 1000
+const SNAPSHOT_MAX_AGE_MS = 12 * 3600 * 1000
 const STARTUP_GRACE_MS = 4000
 const CATEGORY_IDS = CATEGORIES.map((c) => c.id)
 
-const mockMarkets = createMockMarkets()
-const mockById = Object.fromEntries(mockMarkets.map((m) => [m.id, m]))
+let mockList = createMockMarkets()
+const mockById = Object.fromEntries(mockList.map((m) => [m.id, m]))
 
-const isMarketShape = (m) =>
+export const isMarketShape = (m) =>
   isPlainObject(m) &&
   typeof m.id === 'string' &&
   typeof m.title === 'string' &&
@@ -61,7 +64,7 @@ function driftMockList(list) {
   return list.map((m) => {
     if (Math.random() < 0.45) return m
     const shock = (Math.random() + Math.random() + Math.random() - 1.5) * 0.012
-    const yes = Math.round(clamp(m.yesPrice + shock, 0.02, 0.98) * 1000) / 1000
+    const yes = Math.round(clamp(m.yesPrice + shock, 0.07, 0.94) * 1000) / 1000
     return {
       ...m,
       yesPrice: yes,
@@ -82,6 +85,15 @@ function boundKnown(known, keepIds) {
   return next
 }
 
+function addToKnown(known, markets, heldIds) {
+  let next = { ...known }
+  for (const m of markets) {
+    delete next[m.id]
+    next[m.id] = m
+  }
+  return boundKnown(next, new Set(heldIds))
+}
+
 let refreshPromise = null
 
 export const useMarketStore = create((set, get) => ({
@@ -93,24 +105,28 @@ export const useMarketStore = create((set, get) => ({
   known: {},
   tagIds: null,
   lastUpdated: null,
+  snapshotResolutions: {},
   tick: 0,
+
+  /** Sets the visible listing, re-applying the curation rules. */
+  setListing(list, extra) {
+    const curated = curate(list)
+    set((s) => ({
+      markets: mergeListing(extra.source === s.source ? s.markets : {}, curated),
+      order: curated.map((m) => m.id),
+      status: 'ready',
+      tick: s.tick + 1,
+      ...extra,
+    }))
+  },
 
   /** Instant startup from cache (when fresh) without waiting on the network. */
   init() {
     const known = readJSON(KNOWN_KEY, isKnown, {})
     const cache = readJSON(CACHE_KEY, isCache, null)
+    set({ known, tagIds: cache?.tagIds ?? null })
     if (cache && Date.now() - cache.savedAt < CACHE_MAX_AGE_MS && cache.markets.length) {
-      set({
-        known,
-        markets: Object.fromEntries(cache.markets.map((m) => [m.id, m])),
-        order: cache.markets.map((m) => m.id),
-        tagIds: cache.tagIds,
-        source: 'cached',
-        status: 'ready',
-        lastUpdated: cache.savedAt,
-      })
-    } else {
-      set({ known, tagIds: cache?.tagIds ?? null })
+      get().setListing(cache.markets, { source: 'cached', lastUpdated: cache.savedAt })
     }
     if (typeof navigator !== 'undefined' && navigator.onLine === false && get().status !== 'ready') {
       get().loadMock()
@@ -123,96 +139,81 @@ export const useMarketStore = create((set, get) => ({
   },
 
   loadMock() {
-    const state = get()
-    const base = state.source === 'mock' ? state.order.map((id) => state.markets[id]) : mockMarkets
-    const list = state.source === 'mock' ? driftMockList(base) : base
-    set((s) => ({
-      markets: mergeListing(s.source === 'mock' ? s.markets : {}, list),
-      order: list.map((m) => m.id),
-      source: 'mock',
-      stale: false,
-      status: 'ready',
-      lastUpdated: Date.now(),
-      tick: s.tick + 1,
-    }))
+    if (get().source === 'mock') mockList = driftMockList(mockList)
+    get().setListing(mockList, { source: 'mock', stale: false, lastUpdated: Date.now() })
   },
 
   /**
-   * Fetches live listings for both categories plus any held markets missing
-   * from them. Concurrent calls share one in-flight refresh. On failure, keeps
-   * fresh cached/live data if present, otherwise falls back to demo data.
+   * Fetches the live curated listing plus any held markets missing from it.
+   * Concurrent calls share one in-flight refresh. If the live API is
+   * unreachable, falls back to the deployed snapshot, then to fresh cached
+   * data, then to demo data.
    */
   refresh(heldIds = []) {
     if (refreshPromise) return refreshPromise
     refreshPromise = (async () => {
       const state = get()
       try {
-        const tagIds = state.tagIds ?? (await discoverTagIds())
-        const results = await Promise.allSettled(
-          CATEGORIES.map((c) => fetchCategoryMarkets(c.id, tagIds[c.id])),
-        )
-        if (!results.some((r) => r.status === 'fulfilled')) throw results[0].reason
+        const { tagIds, list: fetched, ok } = await fetchCatalog({ tagIds: state.tagIds })
         const hasLiveData = state.source === 'live' || state.source === 'cached'
-        const seen = new Set()
-        const list = []
-        results.forEach((r, i) => {
-          const rows =
-            r.status === 'fulfilled'
-              ? r.value
-              : hasLiveData
-                ? state.order.map((id) => state.markets[id]).filter((m) => m.category === CATEGORIES[i].id)
-                : []
-          for (const m of rows) {
-            if (!seen.has(m.id)) {
-              seen.add(m.id)
-              list.push(m)
-            }
-          }
-        })
+        const kept = hasLiveData
+          ? state.order.map((id) => state.markets[id]).filter((m) => !ok[m.category])
+          : []
+        const list = [...fetched, ...kept.filter((m) => !fetched.some((f) => f.id === m.id))]
         if (!list.length) throw new Error('No live markets returned')
 
+        const listed = new Set(list.map((m) => m.id))
         const missing = heldIds
-          .filter((id) => !seen.has(id) && !isMockId(id) && state.known[id])
+          .filter((id) => !listed.has(id) && !isMockId(id) && state.known[id])
           .slice(0, MAX_HELD_MARKET_REFRESH)
         const extras = (
-          await Promise.allSettled(missing.map((id) => fetchMarketById(id, state.known[id].category)))
+          await Promise.allSettled(
+            missing.map((id) => {
+              const prev = state.known[id]
+              return fetchMarketById(id, prev.category, { league: prev.league ?? null }).then(
+                (m) => m && { ...m, tags: prev.tags ?? [] },
+              )
+            }),
+          )
         )
           .map((r) => (r.status === 'fulfilled' ? r.value : null))
           .filter(Boolean)
 
-        let known = { ...get().known }
-        for (const m of [...list, ...extras]) {
-          delete known[m.id]
-          known[m.id] = m
-        }
-        known = boundKnown(known, new Set(heldIds))
-
-        set((s) => ({
-          markets: mergeListing(s.source === 'mock' ? {} : s.markets, list),
-          order: list.map((m) => m.id),
-          known,
-          tagIds,
-          source: 'live',
-          stale: false,
-          status: 'ready',
-          lastUpdated: Date.now(),
-          tick: s.tick + 1,
-        }))
-        writeJSON(CACHE_KEY, { savedAt: Date.now(), tagIds, markets: list })
+        const known = addToKnown(get().known, [...list, ...extras], heldIds)
+        set({ known })
+        get().setListing(list, { tagIds, source: 'live', stale: false, lastUpdated: Date.now() })
+        writeJSON(CACHE_KEY, { savedAt: Date.now(), tagIds, markets: curate(list) })
         writeJSON(KNOWN_KEY, known)
       } catch {
-        const s = get()
-        const cacheFresh = s.lastUpdated && Date.now() - s.lastUpdated < CACHE_MAX_AGE_MS
-        if ((s.source === 'live' || s.source === 'cached') && cacheFresh) {
-          set({ stale: true })
-        } else {
-          get().loadMock()
-        }
+        await get().fallback(heldIds)
       } finally {
         refreshPromise = null
       }
     })()
     return refreshPromise
+  },
+
+  /** Live API failed: prefer the deployed snapshot, then fresh live/cached data, then demo data. */
+  async fallback(heldIds) {
+    const s = get()
+    const snapshot = await fetchSnapshot().catch(() => null)
+    const snapshotFresh = snapshot && Date.now() - snapshot.generatedAt < SNAPSHOT_MAX_AGE_MS
+    const markets = snapshotFresh ? snapshot.markets.filter(isMarketShape) : []
+    if (markets.length && (!s.lastUpdated || snapshot.generatedAt >= s.lastUpdated || s.source === 'mock')) {
+      set({ known: addToKnown(s.known, markets, heldIds), snapshotResolutions: snapshot.resolutions })
+      get().setListing(markets, { source: 'snapshot', stale: false, lastUpdated: snapshot.generatedAt })
+      return
+    }
+    if (snapshot) set({ snapshotResolutions: snapshot.resolutions })
+    const cacheFresh = s.lastUpdated && Date.now() - s.lastUpdated < CACHE_MAX_AGE_MS
+    if (s.source && s.source !== 'mock' && cacheFresh) {
+      get().setListing(
+        s.order.map((id) => s.markets[id]),
+        { stale: true, source: s.source },
+      )
+    } else {
+      get().loadMock()
+    }
   },
 }))
 
@@ -221,5 +222,7 @@ export function getMarket(id) {
   const s = useMarketStore.getState()
   return s.markets[id] ?? s.known[id] ?? mockById[id] ?? null
 }
+
+export const isOrphanedDemoId = (id) => isMockId(id) && !mockById[id]
 
 export const useMarket = (id) => useMarketStore((s) => s.markets[id] ?? s.known[id] ?? mockById[id] ?? null)

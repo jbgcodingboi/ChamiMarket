@@ -20,13 +20,19 @@ export const SORTS = [
   { id: 'ending', label: 'Ending soon' },
 ]
 
-/** Sorts a copy of the list; resolved markets always go last. */
-export function sortMarkets(markets, sort, isResolved = () => false) {
+/**
+ * Sorts a copy of the list; resolved markets always go last. With sportsFirst,
+ * Sports markets are listed ahead of Politics.
+ */
+export function sortMarkets(markets, sort, isResolved = () => false, { sportsFirst = false } = {}) {
   const list = [...markets]
   const cmp = {
     volume: (a, b) => b.volume - a.volume,
     newest: (a, b) => time(b.createdAt, 0) - time(a.createdAt, 0),
     ending: (a, b) => time(a.endDate, Infinity) - time(b.endDate, Infinity),
   }[sort] ?? ((a, b) => b.volume - a.volume)
-  return list.sort((a, b) => Number(isResolved(a.id)) - Number(isResolved(b.id)) || cmp(a, b))
+  const group = (m) => (sportsFirst && m.category !== 'sports' ? 1 : 0)
+  return list.sort(
+    (a, b) => Number(isResolved(a.id)) - Number(isResolved(b.id)) || group(a) - group(b) || cmp(a, b),
+  )
 }
