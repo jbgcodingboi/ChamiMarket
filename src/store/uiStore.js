@@ -4,6 +4,8 @@ export const useUiStore = create((set) => ({
   query: '',
   category: 'all',
   sort: 'volume',
+  // Sports sub-category (see utils/sports.js); only applies on the Sports tab.
+  sport: 'all',
   auth: { open: false, mode: 'login', message: '' },
   resetOpen: false,
   deleteOpen: false,
@@ -13,7 +15,8 @@ export const useUiStore = create((set) => ({
   endingSoon: false,
 
   setQuery: (query) => set({ query }),
-  setCategory: (category) => set({ category }),
+  setCategory: (category) => set((s) => ({ category, sport: category === 'sports' ? s.sport : 'all' })),
+  setSport: (sport) => set({ sport }),
   setSort: (sort) => set({ sort }),
   openAuth: (mode = 'login', message = '') => set({ auth: { open: true, mode, message } }),
   closeAuth: () => set((s) => ({ auth: { ...s.auth, open: false } })),
