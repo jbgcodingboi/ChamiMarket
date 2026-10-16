@@ -11,6 +11,8 @@ const stack = []
  * Accessible dialog: focus moves inside on open and is trapped there, Escape
  * and backdrop clicks close it, focus returns to the trigger on close, and the
  * page behind stops scrolling. variant="sheet" renders a mobile bottom sheet.
+ * dismissible={false} hides the close button and ignores Escape and backdrop
+ * clicks, for dialogs that need an answer.
  */
 export default function Modal({
   open,
@@ -21,6 +23,7 @@ export default function Modal({
   size = 'md',
   variant = 'dialog',
   initialFocusRef,
+  dismissible = true,
 }) {
   const [prevOpen, setPrevOpen] = useState(open)
   const [closing, setClosing] = useState(false)
@@ -33,8 +36,10 @@ export default function Modal({
   const titleId = useId()
   const descId = useId()
 
+  const dismissibleRef = useRef(dismissible)
   useEffect(() => {
     onCloseRef.current = onClose
+    dismissibleRef.current = dismissible
   })
 
   useEffect(() => {
@@ -57,7 +62,7 @@ export default function Modal({
       if (stack[stack.length - 1] !== token) return
       if (e.key === 'Escape') {
         e.stopPropagation()
-        onCloseRef.current()
+        if (dismissibleRef.current) onCloseRef.current()
         return
       }
       if (e.key !== 'Tab' || !panelRef.current) return
@@ -96,7 +101,7 @@ export default function Modal({
     <div
       className={`fixed inset-0 z-50 flex ${sheet ? 'items-end' : 'items-end sm:items-center'} justify-center bg-black/70 backdrop-blur-sm transition-opacity duration-150 ${closing ? 'opacity-0' : 'animate-fade-in'}`}
       onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose()
+        if (e.target === e.currentTarget && dismissible) onClose()
       }}
     >
       <div
@@ -124,14 +129,16 @@ export default function Modal({
               </p>
             )}
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="-mr-1 rounded-lg p-1.5 text-muted transition hover:bg-surface-3 hover:text-fg"
-            aria-label="Close dialog"
-          >
-            <CloseIcon className="size-5" />
-          </button>
+          {dismissible && (
+            <button
+              type="button"
+              onClick={onClose}
+              className="-mr-1 rounded-lg p-1.5 text-muted transition hover:bg-surface-3 hover:text-fg"
+              aria-label="Close dialog"
+            >
+              <CloseIcon className="size-5" />
+            </button>
+          )}
         </div>
         <div className="px-5 pt-4 pb-5">{children}</div>
       </div>

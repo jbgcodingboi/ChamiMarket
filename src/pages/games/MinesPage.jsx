@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { AutoSettings } from '../../components/games/AutoBet.jsx'
 import BetAmount from '../../components/games/BetAmount.jsx'
-import FairnessPanel from '../../components/games/FairnessPanel.jsx'
+import FairnessButton from '../../components/games/FairnessPanel.jsx'
 import GameShell from '../../components/games/GameShell.jsx'
 import ModeTabs from '../../components/games/ModeTabs.jsx'
 import SoundToggle from '../../components/games/SoundToggle.jsx'
@@ -278,7 +278,10 @@ export default function MinesPage() {
               </span>
               <span className="rounded-full bg-surface-2 px-3 py-1 tabular text-muted">Safe chance {(nextChance * 100).toFixed(1)}%</span>
             </div>
-            <SoundToggle />
+            <div className="flex shrink-0 gap-2">
+              <FairnessButton game="mines" locked={playing} />
+              <SoundToggle />
+            </div>
           </div>
           <div className="relative mx-auto max-w-[30rem]">
             <div className="grid grid-cols-5 gap-2 sm:gap-2.5">
@@ -320,7 +323,6 @@ export default function MinesPage() {
           </div>
         </section>
       </div>
-      <FairnessPanel game="mines" locked={playing} />
     </GameShell>
   )
 }

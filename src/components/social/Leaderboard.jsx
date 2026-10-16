@@ -56,7 +56,7 @@ const BOARDS = {
   },
   games: {
     label: 'Games',
-    caption: 'Ranked by net winnings from Roulette, Blackjack and Plinko this run. Only players with at least one round are listed.',
+    caption: 'Ranked by net winnings from games this run. Only players with at least one round are listed.',
     score: (r) => r.games.net,
     include: (r) => r.games.rounds > 0,
     yours: (r) => formatSignedCurrency(r.games.net),
@@ -111,7 +111,7 @@ export default function Leaderboard() {
         </div>
       ) : user && boardId === 'games' ? (
         <div className="card flex flex-wrap items-center justify-between gap-3 p-4 text-sm text-muted">
-          Play a round of Roulette, Blackjack or Plinko to join the Games board.
+          Play a round of any game to join the Games board.
           <Link to="/games" className="btn btn-primary">
             Go to Games
           </Link>
@@ -189,7 +189,10 @@ export default function Leaderboard() {
       </div>
       <p className="text-xs text-subtle">
         {BACKEND_ENABLED ? (
-          'Every player is valued at current prices, and every figure counts the current run since sign-up or the last reset. Trades, games and payouts are all checked on the server.'
+          <>
+            Every player is valued at current prices, and every figure counts the current run since sign-up or the last reset. Trades, games and payouts are
+            all checked on the server. Traders tagged <SimTag /> are simulated filler while the site is new, and one drops off for every real player who joins.
+          </>
         ) : (
           <>
             Local accounts are valued at current prices, and every figure counts the current run since signup or the last

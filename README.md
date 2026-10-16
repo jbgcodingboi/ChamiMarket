@@ -142,17 +142,16 @@ to freshman, for the next two weeks.
 
 The **Quick** tab is for trades that settle in minutes or hours. All of these are house-priced (no betting market
 exists for them), labelled "House odds", and settle automatically from public data. Market ids describe the market
-completely (coin and window, station and date, stock and session, parlay legs), so any browser can price and settle
-them without shared state. Code: `src/services/quick/`.
+completely (coin and window, station and date, stock and session), so any browser can price and settle them
+without shared state. Code: `src/services/quick/`.
 
 | Market | Odds | Trading closes | Settles from | Typical wait |
 | --- | --- | --- | --- | --- |
 | Bitcoin / Ethereum up or down, next two 15-minute windows | 50% | Window start | Coinbase 1-minute candles (browser) | ~1 min after the window |
 | Bitcoin / Ethereum above $K at the top of the hour (two strikes around the hour's open) | Live: digital option N(d2) from spot and the last hour's volatility | 15 min before the hour | Coinbase 1-minute candles (browser) | ~1 min after the hour |
-| Central Park / Islip (Long Island) "hits X°F" today and tomorrow, on round 5°F lines near the forecast, only when 12%–88% | NWS forecast high with ~2.5°F (today) / 3.5°F (tomorrow) error | 11:00 AM ET that day | NWS Daily Climate Report: a Yes from the 4 PM report, otherwise the overnight final | Same afternoon or overnight |
-| Central Park / Islip "rain or snow" (≥ 0.01 in), only when 15%–85% | NWS chance of precipitation | 7:00 AM ET that day | NWS Daily Climate Report | Same afternoon or overnight |
+| Central Park / Mineola (Long Island) "hits X°F" today and tomorrow, on round 5°F lines near the forecast, only when 12%–88% | NWS forecast high with ~2.5°F (today) / 3.5°F (tomorrow) error, 1°F wider for Mineola | 11:00 AM ET that day | NWS Daily Climate Report: a Yes from the 4 PM report, otherwise the overnight final. Mineola has no climate station, so it settles at JFK Airport, the closest one | Same afternoon or overnight |
+| Central Park / Mineola "rain or snow" (≥ 0.01 in), only when 15%–85% | NWS chance of precipitation | 7:00 AM ET that day | NWS Daily Climate Report (JFK Airport for Mineola) | Same afternoon or overnight |
 | S&P 500 (SPY) and Nasdaq-100 (QQQ) "up on <day>?" for the next NYSE session | 53% (long-run share of up days) | 9:30 AM ET open | Official closes, fetched every 15 minutes by the deploy job (Yahoo Finance; no browser access) | ~15–30 min after the close |
-| Daily parlays: 2–3 favorites (55%–85% each) from games starting in the next 24 hours, never below 15% combined | Product of the legs' live prices | First leg's start | The legs: any loss settles No at once, all wins settle Yes, a void voids it | As soon as the legs settle |
 
 **Faster game results**: tonight's NFL, college football, NBA, MLB and NHL moneyline markets (two team-name
 outcomes) settle from ESPN's public scoreboard as soon as a game is final, instead of waiting hours for
@@ -256,7 +255,9 @@ browser. Connecting a free [Supabase](https://supabase.com) project turns Chami 
   server's own data (Polymarket trades also check the live API), rejects a trade if the price the player saw is
   more than 3¢ off, and rolls game outcomes with a cryptographic RNG on the server. Blackjack's shoe and the
   dealer's hole card never leave the server. Calls are rate limited per player.
-- Simulated pro traders and simulated feed entries are turned off, since real players fill those spots.
+- While the site is new, simulated players (tagged SIM) top the leaderboard up to 15 rows, and one drops off for
+  every real player who joins. A few SIM market trades also trickle into the live feed when real trading is quiet.
+  Game results from every player get their own **Live games** feed on the Games lobby, with no simulated entries.
 
 The app picks the mode at build time: with `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` set it uses the
 backend, otherwise it stays in local mode. Accounts made in local mode don't move over; players sign up again.
@@ -297,7 +298,7 @@ sync job still runs on GitHub). For local development copy `.env.example` to `.e
   address (`<username>@users.chamimarket.app`). Nothing is ever sent to it. Set `VITE_USERNAME_EMAIL_DOMAIN`
   before launch if you want a different domain; changing it later breaks existing username logins.
 - **Testing**: `npm run test:db` runs `supabase/tests/schema.test.sql` (sign-up, row level security, trades,
-  price checks, settlement, parlays, all three games with rigged decks, the leaderboard, resets, rate limits and
+  price checks, settlement, retired parlays, every game with rigged decks, the leaderboard, resets, rate limits and
   recovery codes) against a local Postgres, using `supabase/tests/supabase-stub.sql` in place of Supabase's auth
   schema. CI runs it on every deploy.
 
@@ -344,7 +345,7 @@ src/
   components/   UI (layout, market, portfolio, social, ui primitives, modals)
   pages/        Route-level pages, lazy loaded
   services/     Gamma and CLOB clients, parsing, mock data, synthetic generators, simulated traders
-  games/        Roulette, Blackjack and Plinko engines, physics and RNG (with Vitest tests)
+  games/        Game engines, provably fair RNG, physics and sounds (with Vitest tests)
   store/        Zustand stores: markets, accounts and portfolios, resolutions, feed, games, toasts, UI
   utils/        Pure financial math, formatters, storage, validation, hashing, safe keys (with Vitest tests)
   hooks/        Polling, debounce, price flash, portfolio metrics, leaderboard
@@ -373,7 +374,8 @@ scripts/        Snapshot job, backend sync job and the shared server-side data s
 
 - Market orders fill entirely at the displayed price; there is no order book matching, slippage or fees.
 - In local mode the activity feed only shows real trades made in this browser, alongside simulated ones, and the
-  leaderboard's pro traders are simulated portfolios, tagged as such. The backend replaces both with real players.
+  leaderboard's pro traders are simulated portfolios, tagged as such. With the backend, real players replace them
+  as they join.
 - With the backend, a new Quick market can take up to one sync run to become tradable, and the hourly crypto
   markets pause trading if their synced price is more than about 12 minutes old.
 - Markets that drop out of the live listing keep their last known price unless you hold them (held markets are
