@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { SNAPSHOT_INTERVAL_MS } from '../config.js'
-import { hashPassword, verifyPassword } from '../utils/crypto.js'
+import { hashPassword, PBKDF2_ITERATIONS, verifyPassword } from '../utils/crypto.js'
 import {
   addSnapshot,
   computeNetWorth,
@@ -10,6 +10,7 @@ import {
   sanitizePortfolio,
 } from '../utils/portfolio.js'
 import { randomId } from '../utils/rng.js'
+import { own } from '../utils/safe.js'
 import { isPlainObject, readJSON, removeKey, writeJSON } from '../utils/storage.js'
 import { hasEnded } from '../utils/curation.js'
 import { applyResolutions, executeBuy, executeSell, TradeError } from '../utils/trading.js'
@@ -30,7 +31,9 @@ const isAccount = (a) =>
   typeof a.identifier === 'string' &&
   typeof a.salt === 'string' &&
   typeof a.hash === 'string' &&
-  Number.isInteger(a.iterations)
+  Number.isInteger(a.iterations) &&
+  a.iterations >= 1000 &&
+  a.iterations <= 10_000_000
 
 const isAccounts = (v) => Array.isArray(v) && v.every(isAccount)
 const isSession = (v) => isPlainObject(v) && typeof v.userId === 'string'
@@ -125,7 +128,13 @@ export const useAccountStore = create((set, get) => ({
     const account = accounts.find((a) => a.identifier === identifier.trim().toLowerCase())
     const ok = account ? await verifyPassword(password, account) : false
     if (!ok) throw new AuthError('Incorrect username/email or password.', 'password')
-    set({ accounts })
+    if (account.iterations < PBKDF2_ITERATIONS) {
+      // Upgrade an older, weaker hash now that we have the password.
+      const upgraded = { ...account, ...(await hashPassword(password)) }
+      const latest = readAccounts().map((a) => (a.id === upgraded.id ? upgraded : a))
+      writeJSON(ACCOUNTS_KEY, latest)
+      set({ accounts: latest })
+    } else set({ accounts })
     const settled = get().activate(account)
     return { user: publicUser(account), settled }
   },
@@ -175,7 +184,7 @@ export const useAccountStore = create((set, get) => ({
     if (!user || !portfolio) throw new TradeError('Log in to trade.')
     const market = getMarket(marketId)
     if (!market) throw new TradeError('This market is no longer available.')
-    if (useResolutionStore.getState().resolutions[marketId] || market.closed) {
+    if (own(useResolutionStore.getState().resolutions, marketId) || market.closed) {
       throw new TradeError('This market is resolved. Trading is closed.')
     }
     if (market.acceptingOrders === false) throw new TradeError('Trading is paused on this market.')
@@ -198,7 +207,7 @@ export const useAccountStore = create((set, get) => ({
   sell({ marketId, side, shares }) {
     const { user, portfolio } = get()
     if (!user || !portfolio) throw new TradeError('Log in to trade.')
-    if (useResolutionStore.getState().resolutions[marketId]) {
+    if (own(useResolutionStore.getState().resolutions, marketId)) {
       throw new TradeError('This market is resolved. Positions settle automatically.')
     }
     const market = getMarket(marketId)

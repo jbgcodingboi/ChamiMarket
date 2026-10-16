@@ -1,10 +1,12 @@
 import { create } from 'zustand'
+import { isSafeKey, own } from '../utils/safe.js'
 import { isPlainObject, readJSON, writeJSON } from '../utils/storage.js'
 
 const KEY = 'resolutions'
 
 const isResolutions = (v) =>
   isPlainObject(v) &&
+  Object.keys(v).every(isSafeKey) &&
   Object.values(v).every(
     (r) => isPlainObject(r) && (r.outcome === 'yes' || r.outcome === 'no' || r.outcome === 'void') && Number.isFinite(r.at),
   )
@@ -24,7 +26,7 @@ export const useResolutionStore = create((set, get) => ({
   /** Records a resolution once. Returns false if the market was already resolved. */
   resolve(marketId, outcome, { source = 'api', title = '' } = {}) {
     const current = readJSON(KEY, isResolutions, {})
-    if (current[marketId] || get().resolutions[marketId]) return false
+    if (!isSafeKey(marketId) || own(current, marketId) || own(get().resolutions, marketId)) return false
     const next = { ...current, [marketId]: { outcome, at: Date.now(), source, title } }
     writeJSON(KEY, next)
     set({ resolutions: next })
@@ -32,4 +34,4 @@ export const useResolutionStore = create((set, get) => ({
   },
 }))
 
-export const useResolution = (marketId) => useResolutionStore((s) => s.resolutions[marketId] ?? null)
+export const useResolution = (marketId) => useResolutionStore((s) => own(s.resolutions, marketId) ?? null)

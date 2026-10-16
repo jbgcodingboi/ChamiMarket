@@ -1,3 +1,4 @@
+import { isSafeKey } from '../utils/safe.js'
 import { isPlainObject } from '../utils/storage.js'
 import { fetchJson } from './http.js'
 
@@ -11,7 +12,7 @@ export function parseHouse(data) {
   if (!isPlainObject(data) || !Number.isFinite(data.generatedAt) || !Array.isArray(data.markets)) return null
   const results = {}
   if (isPlainObject(data.results)) {
-    for (const [key, fact] of Object.entries(data.results)) if (isFact(fact)) results[key] = fact
+    for (const [key, fact] of Object.entries(data.results)) if (isSafeKey(key) && isFact(fact)) results[key] = fact
   }
   return { generatedAt: data.generatedAt, markets: data.markets, results }
 }

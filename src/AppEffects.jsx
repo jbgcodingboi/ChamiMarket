@@ -8,12 +8,14 @@ import { isMockId } from './services/mockData.js'
 import { generateSimTrade } from './services/mockTraders.js'
 import { portfolioKey, useAccountStore } from './store/accountStore.js'
 import { useFeedStore } from './store/feedStore.js'
+import { flush as flushGames } from './store/gameStore.js'
 import { getMarket, isOrphanedDemoId, useMarketStore } from './store/marketStore.js'
 import { useMockTraderStore } from './store/mockTraderStore.js'
 import { useResolutionStore } from './store/resolutionStore.js'
 import { toast } from './store/toastStore.js'
 import { hasEnded } from './utils/curation.js'
 import { formatCurrency, formatSignedCurrency } from './utils/format.js'
+import { own } from './utils/safe.js'
 import { subscribeToKey } from './utils/storage.js'
 
 let booted = false
@@ -73,13 +75,14 @@ function officialResult(id) {
     const resolutions = useResolutionStore.getState().resolutions
     const outcome = parlayOutcome(
       legs,
-      legs.map((l) => resolutions[l.id]?.outcome ?? officialResult(l.id)?.outcome ?? null),
+      legs.map((l) => own(resolutions, l.id)?.outcome ?? officialResult(l.id)?.outcome ?? null),
     )
     return outcome ? { outcome, source: 'parlay', title } : null
   }
-  if (store.quickResults[id]) return { outcome: store.quickResults[id], source: 'quick', title }
+  const quick = own(store.quickResults, id)
+  if (quick) return { outcome: quick, source: 'quick', title }
   if (market?.resolvedOutcome) return { outcome: market.resolvedOutcome, source: 'api', title }
-  const fromSnapshot = useMarketStore.getState().snapshotResolutions[id]
+  const fromSnapshot = own(useMarketStore.getState().snapshotResolutions, id)
   if (fromSnapshot) return { outcome: fromSnapshot, source: 'snapshot', title }
   if (isOrphanedDemoId(id) || (isMockId(id) && market && hasEnded(market))) {
     return { outcome: 'void', source: 'demo', title }
@@ -129,6 +132,11 @@ export default function AppEffects() {
     ]
     return () => unsubs.forEach((u) => u())
   }, [])
+
+  // Pays out game rounds that were still animating when a tab closed.
+  useEffect(() => {
+    if (userId) flushGames()
+  }, [userId])
 
   useEffect(() => {
     if (!userId) return undefined
