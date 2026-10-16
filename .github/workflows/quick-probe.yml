@@ -1,0 +1,64 @@
+name: Quick-trade sources probe (temporary)
+
+on:
+  push:
+    branches: ['claude/**']
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe sources
+        run: |
+          UA='ChamiMarket probe (github.com/jbgcodingboi/ChamiMarket)'
+          ORIGIN='https://jbgcodingboi.github.io'
+          probe() {
+            echo "=================== $1"
+            curl -sS -L -A "$UA" -H "Origin: $ORIGIN" -D h.txt -o b.txt --max-time 30 "$1" || echo "curl failed"
+            grep -i -E '^(HTTP|access-control-allow-origin|content-type)' h.txt
+            head -c ${2:-1200} b.txt; echo
+          }
+          probe 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard' 200
+          python3 -c "
+          import json; d=json.load(open('b.txt'))
+          for e in d.get('events',[])[:3]:
+            c=e['competitions'][0]
+            print(e['date'], e['status']['type']['name'], e['status']['type'].get('completed'), [(t['homeAway'], t['team'].get('name'), t['team'].get('shortDisplayName'), t['team'].get('displayName'), t['team'].get('abbreviation'), t.get('score'), t.get('winner')) for t in c['competitors']])
+          "
+          probe 'https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?dates=20261015' 200
+          python3 -c "
+          import json; d=json.load(open('b.txt'))
+          for e in d.get('events',[])[:3]:
+            c=e['competitions'][0]
+            print(e['date'], e['status']['type']['name'], [(t['team'].get('name'), t['team'].get('shortDisplayName'), t.get('score'), t.get('winner')) for t in c['competitors']])
+          "
+          probe 'https://api.exchange.coinbase.com/products/BTC-USD/ticker' 400
+          probe 'https://api.exchange.coinbase.com/products/BTC-USD/candles?granularity=60' 300
+          probe 'https://api.coinbase.com/v2/prices/BTC-USD/spot' 300
+          probe 'https://api.weather.gov/points/40.7829,-73.9654' 200
+          python3 -c "
+          import json; d=json.load(open('b.txt'))['properties']; print(d['forecast'], d['forecastHourly'], d['gridId'], d['gridX'], d['gridY'])
+          "
+          FC=$(python3 -c "import json;print(json.load(open('b.txt'))['properties']['forecast'])")
+          probe "$FC" 200
+          python3 -c "
+          import json; d=json.load(open('b.txt'))['properties']
+          for p in d['periods'][:4]: print(p['name'], p['startTime'], p['isDaytime'], p['temperature'], p['temperatureUnit'], (p.get('probabilityOfPrecipitation') or {}).get('value'), p['shortForecast'])
+          "
+          probe 'https://api.weather.gov/points/40.7946,-73.1021' 100
+          python3 -c "import json;p=json.load(open('b.txt'))['properties'];print(p['forecast'])"
+          probe 'https://api.weather.gov/products/types/CLI/locations/NYC' 600
+          python3 -c "
+          import json; d=json.load(open('b.txt'))
+          for p in d['@graph'][:6]: print(p['issuanceTime'], p['id'])
+          open('cli_ids.txt','w').write('\n'.join(p['id'] for p in d['@graph'][:3]))
+          "
+          for id in $(head -2 cli_ids.txt); do probe "https://api.weather.gov/products/$id" 200; python3 -c "import json;print(json.load(open('b.txt'))['productText'][:2600])"; done
+          probe 'https://api.weather.gov/products/types/CLI/locations/ISP' 300
+          probe 'https://stooq.com/q/d/l/?s=spy.us&i=d' 300
+          tail -5 b.txt
+          probe 'https://query1.finance.yahoo.com/v8/finance/chart/SPY?interval=1d&range=5d' 1500
+          probe 'https://gamma-api.polymarket.com/events?tag_slug=up-or-down&closed=false&limit=5' 1500
