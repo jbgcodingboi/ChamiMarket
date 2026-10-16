@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { createRecoveryCode, resetPassword } from '../services/backend/api.js'
 import { BACKEND_ENABLED } from '../services/backend/config.js'
 import { useAccountStore } from '../store/accountStore.js'
-import { validatePassword } from '../utils/validation.js'
+import { isEmail, validatePassword } from '../utils/validation.js'
 import { toast } from '../store/toastStore.js'
 import { useUiStore } from '../store/uiStore.js'
 import { formatSignedCurrency } from '../utils/format.js'
@@ -133,6 +133,7 @@ function AuthForm({ mode, onModeChange, message, onSuccess }) {
   const signUp = useAccountStore((s) => s.signUp)
   const logIn = useAccountStore((s) => s.logIn)
   const [identifier, setIdentifier] = useState('')
+  const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
   const [errors, setErrors] = useState({})
@@ -140,6 +141,8 @@ function AuthForm({ mode, onModeChange, message, onSuccess }) {
   const pending = useRef(false)
   const ids = useId()
   const signup = mode === 'signup'
+  // Signing up with an email also needs a username to show everyone; a username sign-up needs no email.
+  const pickName = signup && isEmail(identifier.trim())
 
   const submit = async (e) => {
     e.preventDefault()
@@ -149,7 +152,7 @@ function AuthForm({ mode, onModeChange, message, onSuccess }) {
     setErrors({})
     try {
       if (signup) {
-        const user = await signUp({ identifier, password, confirm })
+        const user = await signUp({ identifier, password, confirm, username: pickName ? username : undefined })
         toast({ tone: 'success', title: `Welcome, ${user.username}`, description: 'You have $100,000.00 in play money to trade.' })
         if (BACKEND_ENABLED) {
           const code = await createRecoveryCode().catch(() => null)
@@ -222,6 +225,34 @@ function AuthForm({ mode, onModeChange, message, onSuccess }) {
           )
         )}
       </div>
+      {pickName && (
+        <div>
+          <label htmlFor={`${ids}-name`} className="mb-1.5 block text-sm font-medium">
+            Username
+          </label>
+          <input
+            id={`${ids}-name`}
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            autoComplete="nickname"
+            autoCapitalize="none"
+            spellCheck="false"
+            maxLength={20}
+            aria-invalid={Boolean(errors.username)}
+            aria-describedby={errors.username ? `${ids}-name-err` : `${ids}-name-hint`}
+            className="input"
+          />
+          {errors.username ? (
+            <p id={`${ids}-name-err`} className="mt-1.5 text-sm text-no">
+              {errors.username}
+            </p>
+          ) : (
+            <p id={`${ids}-name-hint`} className="mt-1.5 text-xs text-subtle">
+              Shown on the leaderboard: 3 to 20 letters, numbers or underscores. You still log in with your email.
+            </p>
+          )}
+        </div>
+      )}
       <PasswordField
         id={`${ids}-pw`}
         label="Password"

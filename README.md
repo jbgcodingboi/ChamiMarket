@@ -245,7 +245,8 @@ passes, buying and selling stop until the result is in.
 Without a backend every browser is its own little world: accounts, the leaderboard and the feed only cover that
 browser. Connecting a free [Supabase](https://supabase.com) project turns Chami Market into one shared game:
 
-- **Real accounts** with a username or email and a password. No Google or other sign-in, no confirmation email
+- **Real accounts** with a username or email and a password. Signing up with an email also asks for a username to
+  show on the leaderboard (the email stays the login); a username sign-up needs no email. No Google or other sign-in, no confirmation email
   and no links. At sign-up each player gets a one-time **recovery code** (like `K7QM-2XRP-9WDT`); it is the only
   way to reset a forgotten password, and using it issues a new one. A new code can be made from the account menu.
 - **Fair play rules on the server**: hourly crypto markets are priced from live Coinbase spot at trade time (the
