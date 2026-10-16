@@ -1,8 +1,15 @@
-/** Case-insensitive match on title, event title and description, within a category. */
-export function filterMarkets(markets, { query = '', category = 'all' } = {}) {
+import { ALL_SPORTS, sportSubcategory } from './sports.js'
+
+/**
+ * Case-insensitive match on title, event title and description, within a
+ * category. In the Sports category, `sport` narrows to one sub-category.
+ */
+export function filterMarkets(markets, { query = '', category = 'all', sport = ALL_SPORTS } = {}) {
   const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean)
+  const bySport = category === 'sports' && sport !== ALL_SPORTS
   return markets.filter((m) => {
     if (category !== 'all' && m.category !== category) return false
+    if (bySport && sportSubcategory(m) !== sport) return false
     if (!terms.length) return true
     const haystack = `${m.title} ${m.eventTitle} ${m.description}`.toLowerCase()
     return terms.every((t) => haystack.includes(t))

@@ -92,10 +92,10 @@ create table if not exists public.game_rounds (
 -- Only rebuilt when the game list changes, so a re-run doesn't lock and recheck the whole table.
 do $$ begin
   if coalesce((select pg_get_constraintdef(oid) from pg_constraint
-      where conrelid = 'public.game_rounds'::regclass and conname = 'game_rounds_game_check'), '') not like '%chicken%' then
+      where conrelid = 'public.game_rounds'::regclass and conname = 'game_rounds_game_check'), '') not like '%boneyard%' then
     alter table public.game_rounds drop constraint if exists game_rounds_game_check;
     alter table public.game_rounds add constraint game_rounds_game_check
-      check (game in ('roulette', 'blackjack', 'plinko', 'dice', 'mines', 'chicken'));
+      check (game in ('roulette', 'blackjack', 'plinko', 'dice', 'mines', 'chicken', 'limbo', 'crash', 'boneyard'));
   end if;
 end $$;
 create index if not exists game_rounds_user_idx on public.game_rounds (user_id, created_at desc);
@@ -129,11 +129,18 @@ create table if not exists public.fair_seeds (
 -- Mines and Chicken Cross rounds in progress (mine positions and the crash lane stay here).
 create table if not exists public.game_states (
   user_id uuid not null references public.portfolios (user_id) on delete cascade,
-  game text not null check (game in ('mines', 'chicken')),
+  game text not null check (game in ('mines', 'chicken', 'crash')),
   state jsonb not null,
   updated_at timestamptz not null default now(),
   primary key (user_id, game)
 );
+do $$ begin
+  if coalesce((select pg_get_constraintdef(oid) from pg_constraint
+      where conrelid = 'public.game_states'::regclass and conname = 'game_states_game_check'), '') not like '%crash%' then
+    alter table public.game_states drop constraint if exists game_states_game_check;
+    alter table public.game_states add constraint game_states_game_check check (game in ('mines', 'chicken', 'crash'));
+  end if;
+end $$;
 
 create table if not exists public.recovery_codes (
   user_id uuid primary key references auth.users (id) on delete cascade,
@@ -187,6 +194,7 @@ create table if not exists public.activity (
   created_at timestamptz not null default now()
 );
 create index if not exists activity_created_idx on public.activity (created_at desc);
+create index if not exists activity_kind_idx on public.activity (kind, created_at desc);
 
 -- Feedback and suggestions from the Feedback tab. Private: only the owner reads
 -- it (Supabase Table Editor, or the "Admin - feedback report" workflow).
@@ -734,6 +742,9 @@ create or replace function public.get_portfolio() returns jsonb
 language plpgsql volatile security definer set search_path = '' as $$
 declare v_user uuid := private.uid();
 begin
+  -- A Crash round that ended while the player was away pays out (or loses) now.
+  perform 1 from public.portfolios where user_id = v_user for update;
+  perform private.crash_settle(v_user);
   perform private.snapshot(v_user);
   return private.portfolio_json(v_user) || jsonb_build_object('username', private.username_of(v_user));
 end $$;
@@ -1570,6 +1581,8 @@ begin
   delete from public.markets mk where mk.end_date < now() - interval '7 days'
     and not exists (select 1 from public.positions p where p.market_id = mk.id);
   delete from public.activity where created_at < now() - interval '30 days';
+  -- Every game round posts to the feed, so game rows are kept for two days only.
+  delete from public.activity where kind = 'game' and created_at < now() - interval '2 days';
   return n;
 end $$;
 
@@ -1600,6 +1613,12 @@ create or replace function public.sync_snapshots() returns int
 language plpgsql volatile security definer set search_path = '' as $$
 declare u uuid; n int := 0;
 begin
+  -- Crash rounds left running by players who went away.
+  for u in select user_id from public.game_states
+      where game = 'crash' and state ->> 'phase' = 'playing' and (state ->> 'ends')::bigint <= private.now_ms() loop
+    perform 1 from public.portfolios where user_id = u for update;
+    perform private.crash_settle(u);
+  end loop;
   for u in select user_id from public.portfolios loop
     perform private.snapshot(u);
     n := n + 1;
@@ -1671,10 +1690,17 @@ begin
   update public.fair_seeds set nonce = r.nonce + 1, updated_at = now() where user_id = p_user;
 end $$;
 
+/**
+ * True while a Mines, Chicken Cross or Crash round is open. A Crash round that
+ * has already crashed (or hit its auto cash-out) is settled here first, so it
+ * never blocks the next game. Callers hold the player's portfolio lock.
+ */
 create or replace function private.round_active(p_user uuid) returns boolean
-language sql stable set search_path = '' as $$
-  select exists (select 1 from public.game_states where user_id = p_user and state ->> 'phase' = 'playing')
-$$;
+language plpgsql volatile set search_path = '' as $$
+begin
+  perform private.crash_settle(p_user);
+  return exists (select 1 from public.game_states where user_id = p_user and state ->> 'phase' = 'playing');
+end $$;
 
 create or replace function private.fair_json(p_user uuid) returns jsonb
 language sql stable set search_path = '' as $$
@@ -1733,9 +1759,8 @@ begin
   update public.portfolios set cash = cash - amt where user_id = v_user;
   perform private.game_round(v_user, pf.run, 'dice', amt, ret, format('Rolled %s · %s %s (%s)',
     to_char(v_roll / 100.0, 'FM990.00'), case when p_over then 'over' else 'under' end, to_char(t / 100.0, 'FM990.00'), private.fmt_mult(mult)));
-  if win and mult >= 5 then
-    perform private.game_activity(v_user, 'dice', amt, ret - amt, format('rolled %s at %s', to_char(v_roll / 100.0, 'FM990.00'), private.fmt_mult(mult)));
-  end if;
+  perform private.game_activity(v_user, 'dice', amt, ret - amt, format('rolled %s, %s %s (%s)', to_char(v_roll / 100.0, 'FM990.00'),
+    case when p_over then 'over' else 'under' end, to_char(t / 100.0, 'FM990.00'), private.fmt_mult(mult)));
   return jsonb_build_object('roll', v_roll, 'win', win, 'multiplier', mult, 'payout', ret, 'nonce', fs.nonce,
     'portfolio', private.portfolio_json(v_user));
 end $$;
@@ -1794,9 +1819,9 @@ begin
   perform private.game_round(p_user, (s ->> 'run')::int, 'mines', bet, ret,
     case when p_win then format('%s gem%s · %s mine%s (%s)', gems, case when gems = 1 then '' else 's' end, m, case when m = 1 then '' else 's' end, private.fmt_mult(mult))
     else format('Mine on pick %s · %s mine%s', gems + 1, m, case when m = 1 then '' else 's' end) end);
-  if p_win and mult >= 2 then
-    perform private.game_activity(p_user, 'mines', bet, ret - bet, format('cashed out %s with %s mines', private.fmt_mult(mult), m));
-  end if;
+  perform private.game_activity(p_user, 'mines', bet, ret - bet, case when p_win
+    then format('cashed out %s with %s mine%s', private.fmt_mult(mult), m, case when m = 1 then '' else 's' end)
+    else format('hit a mine on pick %s with %s mine%s', gems + 1, m, case when m = 1 then '' else 's' end) end);
   return s || jsonb_build_object('phase', 'done', 'result', jsonb_build_object('win', p_win, 'hit', p_hit, 'multiplier', mult, 'payout', ret));
 end $$;
 
@@ -1956,9 +1981,9 @@ begin
   perform private.game_round(p_user, (s ->> 'run')::int, 'chicken', bet, ret,
     case when p_win then format('Lane %s · %s (%s)', lane, label, private.fmt_mult(mult))
     else format('Hit on lane %s · %s', lane + 1, label) end);
-  if p_win and mult >= 2 then
-    perform private.game_activity(p_user, 'chicken', bet, ret - bet, format('crossed %s lanes on %s (%s)', lane, lower(label), private.fmt_mult(mult)));
-  end if;
+  perform private.game_activity(p_user, 'chicken', bet, ret - bet, case when p_win
+    then format('crossed %s lane%s on %s (%s)', lane, case when lane = 1 then '' else 's' end, lower(label), private.fmt_mult(mult))
+    else format('got hit on lane %s on %s', lane + 1, lower(label)) end);
   return s || jsonb_build_object('phase', 'done', 'result', jsonb_build_object('win', p_win, 'lane', lane,
     'hitLane', case when p_win then null else lane + 1 end, 'multiplier', mult, 'payout', ret, 'crashLane', s -> 'crash'));
 end $$;
@@ -2051,6 +2076,337 @@ begin
   return jsonb_build_object('round', private.chicken_view(s), 'portfolio', private.portfolio_json(v_user));
 end $$;
 
+-- Limbo and Crash -----------------------------------------------------------------
+-- One provably fair result per round, exactly as src/games/limbo.js computes it:
+--   n = floor(float × 2^24), result = floor(2^24 × 99 / (n + 1)) hundredths,
+-- clamped to 1.00× to 1,000,000×. Reaching x has a chance of about 0.99 / x.
+
+create or replace function private.limbo_cents(f float8) returns bigint
+language sql immutable set search_path = '' as $$
+  select least(100000000, greatest(100, 1660944384::bigint / (floor(f * 16777216)::bigint + 1)))
+$$;
+
+create or replace function private.cents_mult(c bigint) returns text
+language sql immutable set search_path = '' as $$ select to_char(c / 100.0, 'FM9999990.00') || '×' $$;
+
+/** Limbo: pick a target from 1.01× to 1,000,000×; a result at or above it pays target × bet. */
+create or replace function public.play_limbo(p_amount numeric, p_target numeric) returns jsonb
+language plpgsql volatile security definer set search_path = '' as $$
+declare v_user uuid := private.uid(); pf public.portfolios; amt numeric := private.bet_amount(p_amount); t bigint; fs record;
+  res bigint; win boolean; ret numeric;
+begin
+  perform private.rate_limit(v_user, 'limbo', 150);
+  if p_target is null or round(p_target, 2) < 1.01 or round(p_target, 2) > 1000000 then
+    raise exception 'Pick a target from 1.01× to 1,000,000×.';
+  end if;
+  t := (round(p_target, 2) * 100)::bigint;
+  select * into pf from public.portfolios where user_id = v_user for update;
+  if amt > pf.cash then raise exception 'Not enough cash for this bet.'; end if;
+  select * into fs from private.fair_next(v_user);
+  res := private.limbo_cents((private.fair_floats(fs.server_seed, fs.client_seed, fs.nonce, 1))[1]);
+  win := res >= t;
+  ret := case when win then least(trunc(amt * t / 100, 2), 1e12) else 0 end;
+  update public.portfolios set cash = cash - amt where user_id = v_user;
+  perform private.game_round(v_user, pf.run, 'limbo', amt, ret, format('Result %s · target %s', private.cents_mult(res), private.cents_mult(t)));
+  perform private.game_activity(v_user, 'limbo', amt, ret - amt, format('hit %s with a %s target', private.cents_mult(res), private.cents_mult(t)));
+  return jsonb_build_object('result', res / 100.0, 'win', win, 'target', t / 100.0, 'payout', ret, 'nonce', fs.nonce,
+    'portfolio', private.portfolio_json(v_user));
+end $$;
+
+-- Crash: the multiplier climbs as e^(0.00006 × ms) from the start and crashes at
+-- the round's result. The crash point and the moment the round ends stay on
+-- the server; players only learn them once the round is over.
+
+create or replace function private.now_ms() returns bigint
+language sql volatile set search_path = '' as $$ select floor(extract(epoch from clock_timestamp()) * 1000)::bigint $$;
+
+create or replace function private.crash_view(s jsonb) returns jsonb
+language sql volatile set search_path = '' as $$
+  select case when s is null then jsonb_build_object('phase', 'idle') else jsonb_build_object(
+    'phase', s ->> 'phase',
+    'bet', (s ->> 'bet')::numeric,
+    'auto', (s ->> 'auto')::numeric / 100,
+    'elapsed', private.now_ms() - (s ->> 'started')::bigint,
+    'nonce', (s ->> 'nonce')::int,
+    'result', s -> 'result') end
+$$;
+
+create or replace function private.crash_finish(p_user uuid, s jsonb, p_win boolean, p_cents bigint) returns jsonb
+language plpgsql volatile set search_path = '' as $$
+declare bet numeric := (s ->> 'bet')::numeric; c bigint := (s ->> 'crash')::bigint;
+  ret numeric := case when p_win then least(trunc(bet * p_cents / 100, 2), 1e12) else 0 end;
+begin
+  perform private.game_round(p_user, (s ->> 'run')::int, 'crash', bet, ret,
+    case when p_win then format('Cashed out %s · crashed at %s', private.cents_mult(p_cents), private.cents_mult(c))
+    else format('Crashed at %s', private.cents_mult(c)) end);
+  perform private.game_activity(p_user, 'crash', bet, ret - bet,
+    case when p_win then format('cashed out at %s (crashed at %s)', private.cents_mult(p_cents), private.cents_mult(c))
+    else format('rode it to the crash at %s', private.cents_mult(c)) end);
+  return s || jsonb_build_object('phase', 'done', 'result', jsonb_build_object(
+    'win', p_win, 'cashout', case when p_win then p_cents / 100.0 end, 'crash', c / 100.0, 'payout', ret));
+end $$;
+
+/** Settles a Crash round once it has crashed or reached its auto cash-out, or on a cash-out request. */
+create or replace function private.crash_check(p_user uuid, s jsonb, p_cashout boolean) returns jsonb
+language plpgsql volatile set search_path = '' as $$
+declare c bigint; a bigint; x float8; m bigint;
+begin
+  if s is null or s ->> 'phase' <> 'playing' then return s; end if;
+  c := (s ->> 'crash')::bigint;
+  a := (s ->> 'auto')::bigint;
+  x := exp(0.00006 * greatest(0, private.now_ms() - (s ->> 'started')::bigint)) * 100;
+  if a is not null and a <= c and x >= a then return private.crash_finish(p_user, s, true, a); end if;
+  if x >= c then return private.crash_finish(p_user, s, false, c); end if;
+  if p_cashout then
+    m := floor(x)::bigint;
+    return private.crash_finish(p_user, s, true, m);
+  end if;
+  return s;
+end $$;
+
+/** Settles a finished Crash round for the player, if there is one. Callers hold the portfolio lock. */
+create or replace function private.crash_settle(p_user uuid) returns void
+language plpgsql volatile set search_path = '' as $$
+declare s jsonb;
+begin
+  select state into s from public.game_states where user_id = p_user and game = 'crash' and state ->> 'phase' = 'playing' for update;
+  if s is null then return; end if;
+  if (s ->> 'ends')::bigint > private.now_ms() then return; end if;
+  perform private.state_save(p_user, 'crash', private.crash_check(p_user, s, false));
+end $$;
+
+create or replace function public.crash_start(p_amount numeric, p_auto numeric default null) returns jsonb
+language plpgsql volatile security definer set search_path = '' as $$
+declare v_user uuid := private.uid(); pf public.portfolios; amt numeric := private.bet_amount(p_amount); fs record;
+  c bigint; a bigint; s jsonb; started bigint;
+begin
+  perform private.rate_limit(v_user, 'crash', 120);
+  if p_auto is not null and (round(p_auto, 2) < 1.01 or round(p_auto, 2) > 1000000) then
+    raise exception 'Auto cash-out goes from 1.01× to 1,000,000×.';
+  end if;
+  a := (round(p_auto, 2) * 100)::bigint;
+  select * into pf from public.portfolios where user_id = v_user for update;
+  if private.round_active(v_user) then raise exception 'Finish the current round first.'; end if;
+  if amt > pf.cash then raise exception 'Not enough cash for this bet.'; end if;
+  update public.portfolios set cash = cash - amt where user_id = v_user;
+  select * into fs from private.fair_next(v_user);
+  c := private.limbo_cents((private.fair_floats(fs.server_seed, fs.client_seed, fs.nonce, 1))[1]);
+  started := private.now_ms();
+  s := jsonb_build_object('phase', 'playing', 'bet', amt, 'run', pf.run, 'nonce', fs.nonce, 'crash', c, 'auto', a, 'started', started,
+    -- When the round is over for sure: the auto cash-out if it comes first, else the crash.
+    'ends', started + ceil(ln(least(c, coalesce(a, c)) / 100.0) / 0.00006)::bigint);
+  perform private.state_save(v_user, 'crash', s);
+  return jsonb_build_object('round', private.crash_view(s), 'portfolio', private.portfolio_json(v_user));
+end $$;
+
+/** Polled while a round runs: settles it if it has crashed or hit the auto cash-out. */
+create or replace function public.crash_state() returns jsonb
+language plpgsql volatile security definer set search_path = '' as $$
+declare v_user uuid := private.uid(); s jsonb; n jsonb;
+begin
+  perform private.rate_limit(v_user, 'crash-poll', 600);
+  perform 1 from public.portfolios where user_id = v_user for update;
+  s := private.state_load(v_user, 'crash');
+  n := private.crash_check(v_user, s, false);
+  if n is distinct from s then perform private.state_save(v_user, 'crash', n); end if;
+  return jsonb_build_object('round', private.crash_view(n),
+    'portfolio', case when n is distinct from s then private.portfolio_json(v_user) end);
+end $$;
+
+create or replace function public.crash_cashout() returns jsonb
+language plpgsql volatile security definer set search_path = '' as $$
+declare v_user uuid := private.uid(); s jsonb; n jsonb;
+begin
+  perform private.rate_limit(v_user, 'step', 300);
+  perform 1 from public.portfolios where user_id = v_user for update;
+  s := private.state_load(v_user, 'crash');
+  if s is null then raise exception 'There is no round to cash out.'; end if;
+  n := private.crash_check(v_user, s, true);
+  if n is distinct from s then perform private.state_save(v_user, 'crash', n); end if;
+  return jsonb_build_object('round', private.crash_view(n), 'portfolio', private.portfolio_json(v_user));
+end $$;
+
+-- Boneyard (ways slot) -------------------------------------------------------------
+-- The same engine as src/games/boneyard.js, step for step: 22 provably fair
+-- floats per spin, integer "units" of a hundredth of the bet. See that file
+-- for the rules. Tests check both produce the same rounds.
+
+create or replace function private.by_pick(f float8, syms text[], w int[]) returns text
+language plpgsql immutable set search_path = '' as $$
+declare total int := 0; r int; i int;
+begin
+  for i in 1..array_length(w, 1) loop total := total + w[i]; end loop;
+  r := floor(f * total)::int;
+  for i in 1..array_length(w, 1) loop
+    r := r - w[i];
+    if r < 0 then return syms[i]; end if;
+  end loop;
+  return syms[array_length(syms, 1)];
+end $$;
+
+create or replace function private.by_pay(p_sym text, p_count int) returns int
+language sql immutable set search_path = '' as $$
+  select (case p_sym
+    when 'jack' then array[4, 10, 25] when 'queen' then array[4, 12, 30] when 'king' then array[5, 15, 40] when 'ace' then array[7, 20, 50]
+    when 'gambler' then array[12, 40, 100] when 'undertaker' then array[15, 50, 125] when 'outlaw' then array[20, 60, 175]
+    when 'sheriff' then array[25, 100, 250] end)[p_count - 2]
+$$;
+
+create or replace function private.by_spin(fl float8[], p_at int, p_mode text, p_global int) returns jsonb
+language plpgsql immutable set search_path = '' as $$
+declare
+  nrows int[] := array[2, 3, 3, 3, 1];
+  off int[] := array[0, 2, 5, 8, 11];
+  cells text[] := array_fill(null::text, array[12]);
+  spl boolean[] := array_fill(false, array[12]);
+  nmult int[] := array[0, 0, 0, 0, 0];
+  nvis int[] := array[0, 0, 0, 0, 0];
+  r1s text[] := array['jack', 'queen', 'king', 'ace', 'gambler', 'undertaker', 'outlaw', 'sheriff', 'scatter'];
+  r1w int[] := array[14, 14, 13, 13, 8, 7, 6, 5, 3];
+  mids text[] := array['jack', 'queen', 'king', 'ace', 'gambler', 'undertaker', 'outlaw', 'sheriff', 'wild', 'scatter'];
+  midw int[] := array[14, 14, 13, 13, 8, 7, 6, 5, 7, 4];
+  r5s text[] := array['jack', 'queen', 'king', 'ace', 'gambler', 'undertaker', 'outlaw', 'sheriff', 'split', 'coffin'];
+  r5w int[] := array[10, 10, 10, 10, 7, 6, 5, 4, 3, 2];
+  chars text[] := array['gambler', 'undertaker', 'outlaw', 'sheriff'];
+  paying text[] := array['jack', 'queen', 'king', 'ace', 'gambler', 'undertaker', 'outlaw', 'sheriff'];
+  rm_syms text[] := array['5', '10', '25', '50', '100', '250', '500', '999'];
+  rm_w int[] := array[540, 250, 120, 60, 35, 15, 5, 2];
+  cowboy text; rsym text; rval int; srow int; landed int := 0; nglobal int;
+  r int; c int; o int; vis int; sym text; cnt int; k int; ways bigint; nm int; mult bigint; win bigint; units bigint := 0;
+  wins jsonb := '[]'; reels jsonb := '[]'; reel jsonb; nudges jsonb := '[]'; others text[]; scat int := 0; v_bonus text;
+begin
+  cells[1] := private.by_pick(fl[p_at + 1], r1s, r1w);
+  cells[2] := private.by_pick(fl[p_at + 2], r1s, r1w);
+  for r in 2..4 loop
+    o := 2 + (r - 2) * 5;
+    if floor(fl[p_at + o + 1] * 1000) < 40 then
+      vis := 1 + floor(fl[p_at + o + 2] * 3)::int;
+      nvis[r] := vis;
+      nmult[r] := 1 + (3 - vis);
+      for c in 1..3 loop cells[off[r] + c] := 'wild'; end loop;
+    else
+      for c in 1..3 loop cells[off[r] + c] := private.by_pick(fl[p_at + o + 2 + c], mids, midw); end loop;
+    end if;
+  end loop;
+  if p_mode = 'last-rites' then
+    cowboy := chars[1 + floor(fl[p_at + 20] * 4)::int];
+    cells[12] := cowboy;
+    others := array_remove(chars, cowboy);
+    rsym := others[1 + floor(fl[p_at + 21] * 3)::int];
+    rval := private.by_pick(fl[p_at + 22], rm_syms, rm_w)::int;
+  else
+    cells[12] := private.by_pick(fl[p_at + 18], r5s, r5w);
+  end if;
+
+  if cells[12] = 'split' then
+    srow := floor(fl[p_at + 19] * 3)::int;
+    for r in 1..4 loop
+      if srow < nrows[r] then spl[off[r] + srow + 1] := true; end if;
+      if nmult[r] > 0 then nmult[r] := nmult[r] * 2; end if;
+    end loop;
+  end if;
+
+  if p_mode <> 'base' then
+    for r in 2..4 loop
+      if nmult[r] > 0 then landed := landed + 1;
+      else for c in 1..3 loop if cells[off[r] + c] = 'wild' then landed := landed + 1; end if; end loop;
+      end if;
+    end loop;
+    if cells[12] = 'split' then landed := landed + 1; end if;
+  end if;
+  nglobal := case when p_mode = 'base' then 1 else p_global + landed end;
+
+  foreach sym in array paying loop
+    continue when sym = cowboy;
+    k := 0; ways := 1; nm := 0;
+    for r in 1..5 loop
+      cnt := 0;
+      if nmult[r] > 0 then
+        cnt := nrows[r] + case when srow is not null and r < 5 and srow < nrows[r] then 1 else 0 end;
+      else
+        for c in 1..nrows[r] loop
+          if cells[off[r] + c] = sym or cells[off[r] + c] in ('wild', 'split') or cells[off[r] + c] = coalesce(cowboy, '') then
+            cnt := cnt + case when cells[off[r] + c] = 'split' or spl[off[r] + c] then 2 else 1 end;
+          end if;
+        end loop;
+      end if;
+      exit when cnt = 0;
+      k := r;
+      ways := ways * cnt;
+      if nmult[r] > 0 then nm := nm + nmult[r]; end if;
+    end loop;
+    continue when k < 3;
+    mult := (case when nm = 0 then 1 else nm end) * (case when sym = rsym then rval else 1 end);
+    win := private.by_pay(sym, k) * ways * mult;
+    wins := wins || jsonb_build_object('symbol', sym, 'count', k, 'ways', ways, 'mult', mult, 'units', win);
+    units := units + win;
+  end loop;
+  units := units * nglobal;
+
+  for r in 1..5 loop
+    reel := '[]';
+    for c in 1..nrows[r] loop reel := reel || to_jsonb(cells[off[r] + c]); end loop;
+    reels := reels || jsonb_build_array(reel);
+    nudges := nudges || case when nmult[r] > 0
+      then jsonb_build_array(jsonb_build_object('visible', nvis[r], 'steps', 3 - nvis[r], 'mult', nmult[r])) else '[null]'::jsonb end;
+  end loop;
+  if p_mode = 'base' then
+    for c in 1..11 loop if cells[c] = 'scatter' then scat := scat + 1; end if; end loop;
+  end if;
+  v_bonus := case when scat >= 3 then case when cells[12] = 'coffin' then 'last-rites' else 'high-noon' end end;
+  return jsonb_build_object('reels', reels, 'nudges', nudges, 'splitRow', srow, 'wins', wins,
+    'units', case when p_mode = 'base' and units > 0 and units < 100 then 0 else units end,
+    'rip', p_mode = 'base' and units > 0 and units < 100,
+    'global', nglobal, 'cowboy', cowboy,
+    'random', case when rsym is null then null else jsonb_build_object('symbol', rsym, 'value', rval) end,
+    'scatters', scat, 'bonus', v_bonus);
+end $$;
+
+/** A whole round: the base spin, then any free spins, stopping at the 300,000× cap. */
+create or replace function private.by_round(fl float8[]) returns jsonb
+language plpgsql immutable set search_path = '' as $$
+declare sp jsonb; spins jsonb; total bigint; v_bonus text; g int := 1; i int; n int;
+begin
+  sp := private.by_spin(fl, 0, 'base', 1);
+  spins := jsonb_build_array(sp);
+  total := least(30000000, (sp ->> 'units')::bigint);
+  v_bonus := sp ->> 'bonus';
+  if v_bonus is not null and total < 30000000 then
+    n := case when v_bonus = 'last-rites' then 10 else 8 end;
+    for i in 1..n loop
+      sp := private.by_spin(fl, i * 22, v_bonus, g);
+      g := (sp ->> 'global')::int;
+      spins := spins || jsonb_build_array(sp);
+      total := least(30000000, total + (sp ->> 'units')::bigint);
+      exit when total >= 30000000;
+    end loop;
+  end if;
+  return jsonb_build_object('spins', spins, 'bonus', v_bonus, 'units', total, 'capped', total >= 30000000);
+end $$;
+
+create or replace function public.play_boneyard(p_amount numeric) returns jsonb
+language plpgsql volatile security definer set search_path = '' as $$
+declare v_user uuid := private.uid(); pf public.portfolios; amt numeric := private.bet_amount(p_amount); fs record; rd jsonb;
+  units bigint; ret numeric; label text;
+begin
+  perform private.rate_limit(v_user, 'slot', 120);
+  select * into pf from public.portfolios where user_id = v_user for update;
+  if amt > pf.cash then raise exception 'Not enough cash for this bet.'; end if;
+  select * into fs from private.fair_next(v_user);
+  rd := private.by_round(private.fair_floats(fs.server_seed, fs.client_seed, fs.nonce, 242));
+  units := (rd ->> 'units')::bigint;
+  ret := least(trunc(amt * units / 100, 2), 1e12);
+  update public.portfolios set cash = cash - amt where user_id = v_user;
+  label := case rd ->> 'bonus' when 'high-noon' then 'High Noon free spins' when 'last-rites' then 'Last Rites free spins' end;
+  perform private.game_round(v_user, pf.run, 'boneyard', amt, ret,
+    case when units > 0 then concat_ws(' · ', label, private.cents_mult(units) || case when (rd ->> 'capped')::boolean then ' (max win)' else '' end)
+    when (rd -> 'spins' -> 0 ->> 'rip')::boolean then 'R.I.P.' else coalesce(label, 'No win') end);
+  perform private.game_activity(v_user, 'boneyard', amt, ret - amt,
+    case when units > 0 then concat_ws(' ', 'hit', private.cents_mult(units), case when label is not null then 'in ' || label end)
+    when (rd -> 'spins' -> 0 ->> 'rip')::boolean then 'got R.I.P.''d' else 'missed' end);
+  return jsonb_build_object('round', rd, 'payout', ret, 'nonce', fs.nonce, 'portfolio', private.portfolio_json(v_user));
+end $$;
+
 -- ---------------------------------------------------------------------------
 -- Who may call what
 -- ---------------------------------------------------------------------------
@@ -2088,6 +2444,11 @@ grant execute on function
   public.blackjack_act(text),
   public.fair_state(),
   public.play_dice(numeric, numeric, boolean),
+  public.play_limbo(numeric, numeric),
+  public.crash_start(numeric, numeric),
+  public.crash_state(),
+  public.crash_cashout(),
+  public.play_boneyard(numeric),
   public.mines_state(),
   public.mines_start(numeric, int),
   public.mines_reveal(int),

@@ -233,3 +233,8 @@ export const chickenStart = ({ amount, difficulty }) => rpc('chicken_start', { p
 export const chickenStep = () => rpc('chicken_step')
 export const chickenCashout = () => rpc('chicken_cashout')
 export const chickenAuto = ({ amount, difficulty, target }) => rpc('chicken_auto', { p_amount: amount, p_difficulty: difficulty, p_target: target })
+export const playLimbo = ({ amount, target }) => rpc('play_limbo', { p_amount: amount, p_target: target })
+export const crashStart = ({ amount, auto }) => rpc('crash_start', { p_amount: amount, p_auto: auto ?? null })
+export const crashState = () => rpc('crash_state')
+export const crashCashout = () => rpc('crash_cashout')
+export const playBoneyard = ({ amount }) => rpc('play_boneyard', { p_amount: amount })

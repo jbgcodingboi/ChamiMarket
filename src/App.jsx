@@ -26,6 +26,8 @@ const PlinkoPage = lazy(() => import('./pages/games/PlinkoPage.jsx'))
 const DicePage = lazy(() => import('./pages/games/DicePage.jsx'))
 const MinesPage = lazy(() => import('./pages/games/MinesPage.jsx'))
 const ChickenPage = lazy(() => import('./pages/games/ChickenPage.jsx'))
+const LimboPage = lazy(() => import('./pages/games/LimboPage.jsx'))
+const BoneyardPage = lazy(() => import('./pages/games/BoneyardPage.jsx'))
 const TermsPage = lazy(() => import('./pages/TermsPage.jsx'))
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage.jsx'))
 
@@ -46,6 +48,9 @@ function AppRoutes() {
           <Route path="/games/dice" element={<DicePage />} />
           <Route path="/games/mines" element={<MinesPage />} />
           <Route path="/games/chicken" element={<ChickenPage />} />
+          <Route path="/games/limbo" element={<LimboPage key="limbo" />} />
+          <Route path="/games/crash" element={<LimboPage key="crash" crash />} />
+          <Route path="/games/boneyard" element={<BoneyardPage />} />
           <Route path="/terms" element={<TermsPage />} />
           <Route path="*" element={<NotFoundPage />} />
         </Routes>

@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import CategoryFilters from '../components/market/CategoryFilters.jsx'
 import { CATEGORIES } from '../config.js'
@@ -8,6 +8,7 @@ import SortSelect from '../components/market/SortSelect.jsx'
 import ActivityFeed from '../components/social/ActivityFeed.jsx'
 import TradeTicker from '../components/social/TradeTicker.jsx'
 import EmptyState from '../components/ui/EmptyState.jsx'
+import Tabs from '../components/ui/Tabs.jsx'
 import { ClockIcon, SearchIcon } from '../components/ui/Icons.jsx'
 import { DAY_MS } from '../components/market/ClosesIn.jsx'
 import { useClock } from '../store/clockStore.js'
@@ -17,6 +18,7 @@ import { useResolutionStore } from '../store/resolutionStore.js'
 import { useUiStore } from '../store/uiStore.js'
 import { filterMarkets, sortMarkets } from '../utils/filters.js'
 import { own } from '../utils/safe.js'
+import { ALL_SPORTS, effectiveSport, sportTabs } from '../utils/sports.js'
 
 const isEndingSoon = (m, now) => {
   const left = Date.parse(m.endDate) - now
@@ -29,36 +31,50 @@ export default function HomePage() {
   const order = useMarketStore((s) => s.order)
   const markets = useMarketStore((s) => s.markets)
   const resolutions = useResolutionStore((s) => s.resolutions)
-  const { query, category, sort, setCategory, setSort, setQuery, endingSoon, toggleEndingSoon } = useUiStore(
+  const { query, category, sort, sport, setCategory, setSort, setSport, setQuery, endingSoon, toggleEndingSoon } = useUiStore(
     useShallow((s) => ({
       endingSoon: s.endingSoon,
       toggleEndingSoon: s.toggleEndingSoon,
       query: s.query,
       category: s.category,
       sort: s.sort,
+      sport: s.sport,
       setCategory: s.setCategory,
       setSort: s.setSort,
+      setSport: s.setSport,
       setQuery: s.setQuery,
     })),
   )
 
   const now = useClock((s) => s.now)
-  const list = useMemo(() => {
-    const all = order.map((id) => markets[id]).filter(Boolean)
-    return endingSoon ? all.filter((m) => isEndingSoon(m, now)) : all
-  }, [order, markets, endingSoon, now])
+  const all = useMemo(() => order.map((id) => markets[id]).filter(Boolean), [order, markets])
+  const list = useMemo(
+    () => (endingSoon ? all.filter((m) => isEndingSoon(m, now)) : all),
+    [all, endingSoon, now],
+  )
+  const matched = useMemo(() => filterMarkets(list, { query }), [list, query])
   const counts = useMemo(() => {
-    const matched = filterMarkets(list, { query })
     const counts = { all: matched.length }
     for (const c of CATEGORIES) counts[c.id] = matched.filter((m) => m.category === c.id).length
     return counts
-  }, [list, query])
+  }, [matched])
+  // Sports sub-categories: only those with markets in the current listing are offered,
+  // and a selection with none falls back to "All sports".
+  const sportOptions = useMemo(() => (category === 'sports' ? sportTabs(matched) : []), [category, matched])
+  const activeSport = useMemo(() => effectiveSport(sport, matched), [sport, matched])
+  // Forget a sub-category that has dropped out of the listing altogether (e.g. after a refresh).
+  useEffect(() => {
+    if (sport !== ALL_SPORTS && all.length && effectiveSport(sport, all) === ALL_SPORTS) setSport(ALL_SPORTS)
+  }, [sport, all, setSport])
   const visible = useMemo(
     () =>
-      sortMarkets(filterMarkets(list, { query, category }), sort, (id) => Boolean(own(resolutions, id)), {
-        sportsFirst: category === 'all' && sort === 'volume',
-      }),
-    [list, query, category, sort, resolutions],
+      sortMarkets(
+        filterMarkets(list, { query, category, sport: activeSport }),
+        sort,
+        (id) => Boolean(own(resolutions, id)),
+        { sportsFirst: category === 'all' && sort === 'volume' },
+      ),
+    [list, query, category, activeSport, sort, resolutions],
   )
 
   const trimmed = query.trim()
@@ -95,6 +111,18 @@ export default function HomePage() {
               <SortSelect value={sort} onChange={setSort} />
             </div>
           </div>
+          {sportOptions.length > 1 && (
+            <div className="-mx-1 overflow-x-auto px-1">
+              <Tabs
+                tabs={sportOptions}
+                value={activeSport}
+                onChange={setSport}
+                label="Sport or league"
+                size="sm"
+                className="md:flex-wrap"
+              />
+            </div>
+          )}
           {trimmed && (
             <p className="text-sm text-muted" aria-live="polite">
               {visible.length} result{visible.length === 1 ? '' : 's'} for “{trimmed}”
