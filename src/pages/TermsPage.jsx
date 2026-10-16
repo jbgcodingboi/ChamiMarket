@@ -68,8 +68,8 @@ const SECTIONS = [
     title: 'Your information',
     body: [
       'We store only what the site needs to work: your username (or email, if you sign up with one), a securely hashed password, your recovery code in hashed form, and your play money activity. Passwords are never stored in readable form. Your username, balance, trades, and game results can be seen by other players on leaderboards and feeds.',
-      'Accounts are hosted with Supabase and the site with GitHub Pages, so those services process this data for us. Your browser also stores some settings and data locally. We do not sell your information or show ads. Do not enter sensitive personal information anywhere on the site.',
-      'To have your account and data deleted, contact us as described below.',
+      'The site is hosted on GitHub Pages, and accounts stored on our server are hosted with Supabase, so those services process this data for us. Your browser also stores some settings and data locally. We do not sell your information or show ads. Do not enter sensitive personal information anywhere on the site.',
+      'You can delete your account at any time from the account menu. That permanently erases the account, its balance, trades, game history, and leaderboard entries. For anything else about your data, contact us as described below.',
     ],
   },
   {
@@ -134,7 +134,7 @@ const SECTIONS = [
   {
     id: 'contact',
     title: 'Contact',
-    body: ['For questions, data deletion, corrections, or takedown requests, open an issue on the project’s GitHub page.'],
+    body: ['For questions, corrections, or takedown requests, open an issue on the project’s GitHub page.'],
   },
 ]
 

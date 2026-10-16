@@ -30,6 +30,11 @@ if (!BASE || !KEY) {
   console.log('sync skipped: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are not set')
   process.exit(0)
 }
+// The service key must only ever travel over https (plain http is allowed for a local test server).
+if (!/^https:\/\//.test(BASE) && !/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(BASE)) {
+  console.error('sync stopped: SUPABASE_URL must start with https://')
+  process.exit(1)
+}
 
 // Some public APIs (the National Weather Service in particular) require a User-Agent.
 const nativeFetch = globalThis.fetch
@@ -52,6 +57,13 @@ async function select(table, query) {
 }
 
 const inList = (ids) => `in.(${ids.map((id) => `"${id.replace(/"/g, '')}"`).join(',')})`
+
+/** Rows whose `column` is one of `ids`, fetched in batches so the URL never gets too long. */
+async function selectIn(table, fields, column, ids) {
+  const rows = []
+  for (let i = 0; i < ids.length; i += 100) rows.push(...(await select(table, `select=${fields}&${column}=${inList(ids.slice(i, i + 100))}`)))
+  return rows
+}
 const settled = (p) => (p.status === 'fulfilled' ? p.value : null)
 const now = Date.now()
 const log = (msg) => console.log(msg)
@@ -80,12 +92,15 @@ for (const [name, p] of Object.entries({ polymarket: catalog, chaminade: house, 
 
 // Held markets that dropped out of the listing still need current prices for valuation.
 const held = (await rpc('held_markets')) ?? []
+// Legs of parlays opened before parlays were retired still need prices and results.
+const legIds = [...new Set(held.flatMap((id) => parseParlayId(id)?.map((l) => l.id) ?? []))]
 const listed = new Set([...listing, ...quick].map((m) => m.id))
-const heldMeta = held.length ? await select('markets', `select=id,category,league&id=${inList(held)}`) : []
+const lookups = [...new Set([...held.filter((id) => !parseParlayId(id)), ...legIds])]
+const heldMeta = await selectIn('markets', 'id,category,league', 'id', lookups)
 const metaById = new Map(heldMeta.map((m) => [m.id, m]))
 const extra = (
   await Promise.allSettled(
-    held
+    lookups
       .filter((id) => /^\d+$/.test(id) && !listed.has(id))
       .map((id) => fetchMarketById(id, metaById.get(id)?.category ?? 'sports', { league: metaById.get(id)?.league ?? null })),
   )
@@ -108,7 +123,7 @@ const add = (id, outcome, source) => {
 const recent = settled(catalog) ? await fetchRecentResolutions({ tagIds: settled(catalog).tagIds, now }).catch(() => ({})) : {}
 const reports = {}
 async function outcomeOf(id) {
-  if (isHouseId(id)) return houseData ? houseOutcome(id, houseData.results) : null
+  if (isHouseId(id)) return houseData ? houseOutcome(id, houseData.results, now) : null
   const crypto = parseCryptoId(id)
   if (crypto) return cryptoOutcome(crypto, await fetchCandles(crypto.coin.product, crypto.start, crypto.end), now)
   const wx = parseWeatherId(id)
@@ -126,10 +141,8 @@ async function outcomeOf(id) {
   return null
 }
 
-const singles = held.filter((id) => !parseParlayId(id))
-const legIds = [...new Set(held.flatMap((id) => parseParlayId(id)?.map((l) => l.id) ?? []))]
 await Promise.all(
-  [...new Set([...singles, ...legIds])].map(async (id) => {
+  lookups.map(async (id) => {
     try {
       add(id, await outcomeOf(id), 'sync')
     } catch (err) {
@@ -138,7 +151,7 @@ await Promise.all(
   }),
 )
 // Parlays settle from their legs, using results already on the server as well.
-const known = legIds.length ? await select('resolutions', `select=market_id,outcome&market_id=${inList(legIds)}`) : []
+const known = await selectIn('resolutions', 'market_id,outcome', 'market_id', legIds)
 const legOutcome = new Map(known.map((r) => [r.market_id, r.outcome]))
 for (const id of held) {
   const legs = parseParlayId(id)

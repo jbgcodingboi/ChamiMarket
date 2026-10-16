@@ -41,15 +41,24 @@ const matches = (label, competitor) => {
   return l.length >= 3 && competitor.names.some((n) => n === l)
 }
 
-/** The ESPN game whose two teams are the market's two outcomes. */
+const START_WINDOW = 3 * 3600e3
+
+/**
+ * The one ESPN game whose two teams are the market's two outcomes and whose
+ * start is within three hours of the market's. Without a known start, or with
+ * more than one candidate (a doubleheader), nothing is settled here and the
+ * market waits for Polymarket's own result.
+ */
 export function findGame(market, games) {
   const { yes, no } = market.labels
-  return (
-    games.find((g) => {
-      const [a, b] = g.competitors
-      return (matches(yes, a) && matches(no, b)) || (matches(yes, b) && matches(no, a))
-    }) ?? null
-  )
+  const start = Date.parse(market.gameStart ?? '')
+  if (!Number.isFinite(start)) return null
+  const found = games.filter((g) => {
+    const [a, b] = g.competitors
+    const teams = (matches(yes, a) && matches(no, b)) || (matches(yes, b) && matches(no, a))
+    return teams && Number.isFinite(g.start) && Math.abs(g.start - start) <= START_WINDOW
+  })
+  return found.length === 1 ? found[0] : null
 }
 
 export function espnOutcome(market, games) {
@@ -66,11 +75,11 @@ export function espnOutcome(market, games) {
 export const isEspnSettleable = (m) =>
   Boolean(m && ESPN_LEAGUES[m.league] && m.labels && m.labels.yes !== 'Yes' && m.labels.no !== 'No' && !/\b(spread|o\/u|over|under|total)\b|\(/i.test(m.title))
 
-/** Scoreboards for the game's date (ESPN dates are Eastern); without a start time, the end date and the day before. */
+/** Scoreboards for the day of the game's start (ESPN dates are Eastern) and the day before, for late starts listed a day early. */
 export async function fetchGamesFor(market) {
   const start = Date.parse(market.gameStart ?? '')
-  const end = Date.parse(market.endDate)
-  const dates = Number.isFinite(start) ? [etDate(start)] : [...new Set([etDate(end), addDays(etDate(end), -1)])]
+  if (!Number.isFinite(start)) return []
+  const dates = [...new Set([etDate(start), addDays(etDate(start), -1)])]
   const boards = await Promise.allSettled(
     dates.map((d) =>
       fetchJson(`https://site.api.espn.com/apis/site/v2/sports/${ESPN_LEAGUES[market.league]}/scoreboard?dates=${compactDate(d)}`, {

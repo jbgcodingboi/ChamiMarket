@@ -16,12 +16,27 @@ const isEntry = (e) =>
   (e.action === 'buy' || e.action === 'sell') &&
   Number.isFinite(e.shares) &&
   Number.isFinite(e.price) &&
-  typeof e.marketTitle === 'string'
+  typeof e.marketTitle === 'string' &&
+  typeof e.marketId === 'string' &&
+  (e.side === 'yes' || e.side === 'no') &&
+  (e.sideLabel === undefined || e.sideLabel === null || typeof e.sideLabel === 'string')
 
 const readFeed = () => {
   const list = readJSON(KEY, Array.isArray, [])
   return list.filter(isEntry).slice(0, MAX_FEED_ENTRIES)
 }
+
+const merge = (list, add, max) => {
+  const byId = new Map(list.map((e) => [e.id, e]))
+  for (const e of add) byId.set(e.id, e)
+  return [...byId.values()].sort((x, y) => y.ts - x.ts).slice(0, max)
+}
+
+/** Files new backend entries under market trades or game results, newest first, without duplicates. */
+const place = (s, entries) => ({
+  real: merge(s.real, entries.filter((e) => e.action !== 'game'), MAX_FEED_ENTRIES),
+  games: merge(s.games, entries.filter((e) => e.action === 'game'), MAX_GAMES),
+})
 
 /**
  * Activity feed. Real paper trades from every local account live in a shared,
@@ -39,22 +54,23 @@ export const useFeedStore = create((set) => ({
     set({ real: readFeed() })
   },
 
-  /** Backend mode: loads recent activity from every player and follows new rows live. */
+  /**
+   * Backend mode: follows new rows live, then loads recent activity from
+   * every player. Subscribing first means nothing posted in between is missed.
+   */
   async connect() {
+    const stop = await backend.subscribeActivity((entry) => set((s) => place(s, [entry]))).catch(() => () => {})
+    await useFeedStore.getState().refresh()
+    return stop
+  },
+
+  /** Backend mode: re-reads recent activity, e.g. when a sleeping tab wakes and may have missed rows. */
+  async refresh() {
     const [real, games] = await Promise.all([
-      backend.recentActivity(MAX_SIM, 'markets').catch(() => []),
-      backend.recentActivity(MAX_GAMES, 'games').catch(() => []),
+      backend.recentActivity(MAX_SIM, 'markets').catch(() => null),
+      backend.recentActivity(MAX_GAMES, 'games').catch(() => null),
     ])
-    set({ real, games })
-    return backend
-      .subscribeActivity((entry) =>
-        set((s) =>
-          entry.action === 'game'
-            ? { games: [entry, ...s.games.filter((e) => e.id !== entry.id)].slice(0, MAX_GAMES) }
-            : { real: [entry, ...s.real.filter((e) => e.id !== entry.id)].slice(0, MAX_FEED_ENTRIES) },
-        ),
-      )
-      .catch(() => () => {})
+    set((s) => place(s, [...(real ?? []), ...(games ?? [])]))
   },
 
   addReal(trade) {

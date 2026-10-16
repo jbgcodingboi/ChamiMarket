@@ -150,7 +150,7 @@ without shared state. Code: `src/services/quick/`.
 | Bitcoin / Ethereum up or down, next two 15-minute windows | 50% | Window start | Coinbase 1-minute candles (browser) | ~1 min after the window |
 | Bitcoin / Ethereum above $K at the top of the hour (two strikes around the hour's open) | Live: digital option N(d2) from spot and the last hour's volatility | 15 min before the hour | Coinbase 1-minute candles (browser) | ~1 min after the hour |
 | Central Park / Mineola (Long Island) "hits X°F" today and tomorrow, on round 5°F lines near the forecast, only when 12%–88% | NWS forecast high with ~2.5°F (today) / 3.5°F (tomorrow) error, 1°F wider for Mineola | 11:00 AM ET that day | NWS Daily Climate Report: a Yes from the 4 PM report, otherwise the overnight final. Mineola has no climate station, so it settles at JFK Airport, the closest one | Same afternoon or overnight |
-| Central Park / Mineola "rain or snow" (≥ 0.01 in), only when 15%–85% | NWS chance of precipitation | 7:00 AM ET that day | NWS Daily Climate Report (JFK Airport for Mineola) | Same afternoon or overnight |
+| Central Park / Mineola "rain or snow" (≥ 0.01 in), only when 15%–85% | NWS chance of precipitation | Midnight ET as the day begins | NWS Daily Climate Report (JFK Airport for Mineola) | Same afternoon or overnight |
 | S&P 500 (SPY) and Nasdaq-100 (QQQ) "up on <day>?" for the next NYSE session | 53% (long-run share of up days) | 9:30 AM ET open | Official closes, fetched every 15 minutes by the deploy job (Yahoo Finance; no browser access) | ~15–30 min after the close |
 
 **Faster game results**: tonight's NFL, college football, NBA, MLB and NHL moneyline markets (two team-name
@@ -248,6 +248,10 @@ browser. Connecting a free [Supabase](https://supabase.com) project turns Chami 
 - **Real accounts** with a username or email and a password. No Google or other sign-in, no confirmation email
   and no links. At sign-up each player gets a one-time **recovery code** (like `K7QM-2XRP-9WDT`); it is the only
   way to reset a forgotten password, and using it issues a new one. A new code can be made from the account menu.
+- **Fair play rules on the server**: hourly crypto markets are priced from live Coinbase spot at trade time (the
+  browser shows the same live price), Polymarket trades stop once a market stops taking orders, payouts round
+  down to the cent, balance resets are limited to one a day, and refused trades still count toward rate limits.
+  Usernames can't copy a simulated player or look official (look-alikes such as `quietkeIIy` included).
 - **Delete account** in the account menu, after typing the username and password. The server
   (`delete_account`) removes the login and everything tied to it, including leaderboard rows and feed entries.
 - **Terms**: a first-visit pop-up with just a link to the full Terms of Use and one "I understand and agree" button
