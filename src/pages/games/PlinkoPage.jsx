@@ -3,7 +3,7 @@ import GameShell from '../../components/games/GameShell.jsx'
 import PlinkoBoard from '../../components/games/plinko/PlinkoBoard.jsx'
 import { useDocumentTitle } from '../../hooks/useDocumentTitle.js'
 import { bucketOf, bucketProbability, dropPath, expectedReturn, MULTIPLIERS, RISKS, ROW_OPTIONS } from '../../games/plinko.js'
-import { useGameStore } from '../../store/gameStore.js'
+import { finish, place, useChips } from '../../store/gameStore.js'
 import { toast } from '../../store/toastStore.js'
 import { roundMoney } from '../../utils/math.js'
 import { formatCurrency } from '../../utils/format.js'
@@ -63,9 +63,7 @@ function Rules({ rows, risk }) {
 
 export default function PlinkoPage() {
   useDocumentTitle('Plinko')
-  const balance = useGameStore((s) => s.wallet.balance)
-  const place = useGameStore((s) => s.place)
-  const finish = useGameStore((s) => s.finish)
+  const balance = useChips()
   const board = useRef(null)
   const auto = useRef(null)
   const [betText, setBetText] = useState('10')

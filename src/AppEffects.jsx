@@ -8,6 +8,7 @@ import { isMockId } from './services/mockData.js'
 import { generateSimTrade } from './services/mockTraders.js'
 import { portfolioKey, useAccountStore } from './store/accountStore.js'
 import { useFeedStore } from './store/feedStore.js'
+import { flush as flushGames } from './store/gameStore.js'
 import { getMarket, isOrphanedDemoId, useMarketStore } from './store/marketStore.js'
 import { useMockTraderStore } from './store/mockTraderStore.js'
 import { useResolutionStore } from './store/resolutionStore.js'
@@ -129,6 +130,11 @@ export default function AppEffects() {
     ]
     return () => unsubs.forEach((u) => u())
   }, [])
+
+  // Pays out game rounds that were still animating when a tab closed.
+  useEffect(() => {
+    if (userId) flushGames()
+  }, [userId])
 
   useEffect(() => {
     if (!userId) return undefined

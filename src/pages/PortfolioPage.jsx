@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import EquityChart from '../components/portfolio/EquityChart.jsx'
+import GameHistory from '../components/portfolio/GameHistory.jsx'
 import PortfolioDashboard from '../components/portfolio/PortfolioDashboard.jsx'
 import PositionManager from '../components/portfolio/PositionManager.jsx'
 import TradeHistory from '../components/portfolio/TradeHistory.jsx'
@@ -9,6 +10,7 @@ import Tabs from '../components/ui/Tabs.jsx'
 import { useDocumentTitle } from '../hooks/useDocumentTitle.js'
 import { usePortfolioMetrics } from '../hooks/usePortfolio.js'
 import { useAccountStore } from '../store/accountStore.js'
+import { gamesOf, runGames } from '../store/gameStore.js'
 import { useUiStore } from '../store/uiStore.js'
 import { formatCurrency } from '../utils/format.js'
 
@@ -38,7 +40,7 @@ export default function PortfolioPage() {
             </div>
           }
         >
-          Track your play-money cash, open positions, PnL and trade history. New accounts start with $100,000.00.
+          Track your play-money cash, open positions, PnL, trade history and game results. New accounts start with $100,000.00.
         </EmptyState>
       </div>
     )
@@ -59,20 +61,27 @@ export default function PortfolioPage() {
           <RefreshIcon /> Reset balance
         </button>
       </div>
-      <PortfolioDashboard metrics={metrics} resetsUsed={portfolio.resetsUsed} />
+      <PortfolioDashboard metrics={metrics} resetsUsed={portfolio.resetsUsed} games={runGames(portfolio)} />
       <EquityChart netWorth={metrics.netWorth} />
       <div className="space-y-4">
         <Tabs
           tabs={[
             { id: 'positions', label: 'Positions', count: positions.length },
             { id: 'history', label: 'Trade History', count: portfolio.history.length },
+            { id: 'games', label: 'Games', count: gamesOf(portfolio).history.length },
           ]}
           value={tab}
           onChange={setTab}
           label="Portfolio sections"
         />
         <div role="tabpanel">
-          {tab === 'positions' ? <PositionManager positions={positions} /> : <TradeHistory history={portfolio.history} />}
+          {tab === 'positions' ? (
+            <PositionManager positions={positions} />
+          ) : tab === 'games' ? (
+            <GameHistory history={gamesOf(portfolio).history} />
+          ) : (
+            <TradeHistory history={portfolio.history} />
+          )}
         </div>
       </div>
     </div>

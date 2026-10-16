@@ -45,7 +45,7 @@ Requires Node 20.19+ (Node 22 recommended).
 - **Social**: an activity feed mixing your local trades with clearly tagged simulated trades, and a leaderboard
   of local accounts plus simulated pro traders.
 - **Guest mode**: everything is browsable without an account; trading, the portfolio and resets need one.
-- **Games**: play-money Roulette, Blackjack and Plinko with their own chip balance (see below).
+- **Games**: Roulette, Blackjack and Plinko, played with your portfolio cash (see below).
 
 ## How the paper trading math works
 
@@ -154,10 +154,11 @@ Polymarket's resolution. Only markets whose outcomes match both teams of one ESP
 
 ## Games
 
-The **Games** tab has three casino games played with chips. Chips are separate from trading cash, so they never
-touch your portfolio, PnL or leaderboard rank. Each account (and the guest) starts with $10,000 in chips and can
-refill to $10,000 whenever the balance drops below $1,000. Every round is recorded with per-game stats (rounds,
-amount wagered, net) and a recent-results list. All randomness comes from the Web Crypto API with rejection
+The **Games** tab (between Markets and Leaderboard) has three casino games that bet with your portfolio cash, the
+same $100,000 you trade with. Wins and losses change your net worth, the equity chart and your leaderboard rank
+like any trade, and a balance reset covers games too. Playing needs an account, just like trading. Every round is
+logged on the portfolio's **Games** tab, with per-game stats (rounds, amount wagered, net) and a "Games this run"
+total on the dashboard. Realized PnL still counts market sells and settlements only. All randomness comes from the Web Crypto API with rejection
 sampling, so outcomes are unbiased.
 
 - **Roulette**: European single-zero wheel (37 pockets) with an animated SVG wheel and ball. Straight up pays
@@ -173,7 +174,7 @@ sampling, so outcomes are unbiased.
 
 The engines are pure functions in `src/games/` (with tests). A round's stake is taken when it starts and the
 payout is credited when the animation ends; if you leave the page mid-spin or mid-drop, the payout is credited
-anyway. Wallets live in `localStorage` under `redbook:games:*`.
+anyway, and a round started before a balance reset is dropped. Game records are stored on the portfolio itself.
 
 ## Curation rules
 
@@ -231,7 +232,7 @@ src/
   pages/        Route-level pages, lazy loaded
   services/     Gamma and CLOB clients, parsing, mock data, synthetic generators, simulated traders
   games/        Roulette, Blackjack and Plinko engines, physics and RNG (with Vitest tests)
-  store/        Zustand stores: markets, accounts and portfolios, resolutions, feed, chips, toasts, UI
+  store/        Zustand stores: markets, accounts and portfolios, resolutions, feed, games, toasts, UI
   utils/        Pure financial math, formatters, storage, validation, hashing (with Vitest tests)
   hooks/        Polling, debounce, price flash, portfolio metrics, leaderboard
 ```

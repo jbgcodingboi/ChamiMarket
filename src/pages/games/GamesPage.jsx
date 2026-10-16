@@ -1,9 +1,9 @@
 import { Link } from 'react-router-dom'
-import { BalanceCard } from '../../components/games/GameShell.jsx'
-import { useWalletSync } from '../../components/games/useWalletSync.js'
+import { BalanceCard, LoginToPlay } from '../../components/games/GameShell.jsx'
 import { useDocumentTitle } from '../../hooks/useDocumentTitle.js'
 import { useNow } from '../../hooks/useNow.js'
-import { useGameStore } from '../../store/gameStore.js'
+import { useAccountStore } from '../../store/accountStore.js'
+import { useGames } from '../../store/gameStore.js'
 import { formatCurrency, formatRelativeTime, formatSignedCurrency, pnlTone } from '../../utils/format.js'
 
 function RouletteArt() {
@@ -84,7 +84,7 @@ const GAMES = [
 const GAME_NAME = { roulette: 'Roulette', blackjack: 'Blackjack', plinko: 'Plinko' }
 
 function RecentRounds() {
-  const history = useGameStore((s) => s.wallet.history)
+  const history = useGames((g) => g.history)
   const now = useNow(30000)
   const recent = history.slice(0, 8)
   return (
@@ -115,14 +115,14 @@ function RecentRounds() {
 
 export default function GamesPage() {
   useDocumentTitle('Games')
-  useWalletSync()
-  const stats = useGameStore((s) => s.wallet.stats)
+  const user = useAccountStore((s) => s.user)
+  const stats = useGames((g) => g.stats)
   return (
     <div className="mx-auto max-w-7xl px-4 py-6">
       <h1 className="text-2xl font-bold tracking-tight">Games</h1>
       <p className="mt-1 max-w-2xl text-sm text-muted">
-        Casino games with play-money chips. Your chip balance is separate from your trading cash, so nothing here changes your portfolio or leaderboard
-        rank.
+        Casino games played with your portfolio cash. Every win and loss moves your net worth and leaderboard rank, just like a trade. Play money
+        only.
       </p>
       <div className="mt-5 grid gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -157,8 +157,14 @@ export default function GamesPage() {
           })}
         </div>
         <aside className="space-y-4" aria-label="Chips">
-          <BalanceCard />
-          <RecentRounds />
+          {user ? (
+            <>
+              <BalanceCard />
+              <RecentRounds />
+            </>
+          ) : (
+            <LoginToPlay />
+          )}
         </aside>
       </div>
     </div>

@@ -10,9 +10,9 @@ import UserMenu from './UserMenu.jsx'
 
 const NAV = [
   { to: '/', label: 'Markets', icon: GridIcon, end: true },
+  { to: '/games', label: 'Games', icon: DiceIcon },
   { to: '/leaderboard', label: 'Leaderboard', icon: TrophyIcon },
   { to: '/portfolio', label: 'Portfolio', icon: BriefcaseIcon },
-  { to: '/games', label: 'Games', icon: DiceIcon },
 ]
 
 const navClass = ({ isActive }) =>
