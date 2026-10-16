@@ -99,19 +99,20 @@ describe('markets', () => {
   const markets = buildMarkets(games, NOW)
   it('lists head-to-head games in the next two weeks only', () => {
     const titles = markets.map((m) => m.title)
-    expect(titles).toContain("Varsity Football: Will Chaminade beat St. Anthony's?")
-    expect(titles).toContain("Varsity Soccer: Will Chaminade beat St. Anthony's?")
+    expect(titles).toContain("Football: Will Chaminade beat St. Anthony's?")
+    expect(titles).toContain("Soccer: Will Chaminade beat St. Anthony's?")
     expect(titles.some((t) => /Cross Country|Basketball/.test(t))).toBe(false)
   })
   it('adds an over/under near the season average total', () => {
-    const ou = markets.find((m) => m.id.includes('-ou-') && m.title.startsWith(FB))
+    const ou = markets.find((m) => m.id.includes('-ou-') && m.title.startsWith('Football'))
     // Totals: 35, 41, 31, 43, 24, 51 -> average 37.5 -> line 37.5
-    expect(ou.title).toBe("Varsity Football: Chaminade at St. Anthony's, over 37.5 total points?")
+    expect(ou.title).toBe("Football at St. Anthony's: over 37.5 points?")
+    expect(ou.eventTitle).toMatch(/^Varsity Football · at St. Anthony's/)
     expect(ou.yesPrice).toBeGreaterThan(0.4)
     expect(ou.yesPrice).toBeLessThan(0.6)
   })
   it('closes trading at the scheduled start', () => {
-    const m = markets.find((x) => x.title.startsWith(FB))
+    const m = markets.find((x) => x.title.startsWith('Football'))
     expect(m.endDate).toBe('2026-10-16T23:00:00.000Z')
     expect(m.category).toBe('chaminade')
     expect(m.yesPrice + m.noPrice).toBeCloseTo(1, 4)
@@ -124,8 +125,8 @@ describe('results and settlement', () => {
   const played = parseCalendar([{ events: [{ ...feed[1].events[0], status: 'O', result: { status: 'L', team_score: '21', opponent_score: '35' } }] }])
   const all = [...games.filter((g) => g.id !== fb.id), ...played]
   const results = buildResults(all, later)
-  const win = buildMarkets(games, NOW).find((m) => m.title.startsWith(FB) && m.id.endsWith('-win'))
-  const ou = buildMarkets(games, NOW).find((m) => m.title.startsWith(FB) && m.id.includes('-ou-'))
+  const win = buildMarkets(games, NOW).find((m) => m.title.startsWith('Football') && m.id.endsWith('-win'))
+  const ou = buildMarkets(games, NOW).find((m) => m.title.startsWith('Football') && m.id.includes('-ou-'))
 
   it('settles winner and over/under markets from the final score', () => {
     expect(houseOutcome(win.id, results)).toBe('no')

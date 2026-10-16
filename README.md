@@ -23,13 +23,13 @@ npm run dev        # http://localhost:5173
 | `npm test`        | Vitest unit tests (financial math, parsing, storage)|
 | `npm run lint`    | oxlint                                              |
 | `npm run check`   | lint + tests + build                                |
-| `npm run snapshot`| Fetch the odds/results snapshot into `public/data/` |
+| `npm run snapshot`| Fetch the Polymarket and Chaminade data into `public/data/` |
 
 Requires Node 20.19+ (Node 22 recommended).
 
 ## Features
 
-- **Discovery**: Sports and Top Politics only, curated (see below), with Sports listed first in the All view; a
+- **Discovery**: Sports, Top Politics and Chaminade, curated (see below), with Sports listed first in the All view; a
   debounced live search (title and rules text, case-insensitive, combined with the category filter) and sorting
   by volume, newest or ending soon.
 - **Market detail**: probability chart with 1D/1W/1M/All ranges, order book, rules, your position, and a sticky
@@ -75,7 +75,8 @@ the shares you hold. Orders execute at the displayed outcome price (there is no 
 | League game feeds       | Gamma `GET /sports` for series ids, then `GET /events?series_id=…` for NFL, college football, MLB, NBA, NHL, the top 5 European soccer leagues and the Champions League |
 | Market list and prices  | Gamma `GET /events?tag_id=…&active=true&closed=false&end_date_min=…&end_date_max=…` for the Sports (2 pages) and Politics tags |
 | Held markets            | Gamma `GET /markets/{id}` (also used to detect resolved markets)          |
-| Snapshot (fallback)     | `data/snapshot.json`, written by the deploy workflow every hour           |
+| Snapshot (fallback)     | `data/snapshot.json`, written by the deploy workflow every 15 minutes     |
+| Chaminade games         | `data/chaminade.json`, built from the school's athletics calendar feed every 15 minutes |
 | Order book              | CLOB `GET /book?token_id=…`                                               |
 | Price history           | CLOB `GET /prices-history?market={token}&interval=…&fidelity=…`           |
 
@@ -92,7 +93,7 @@ the shares you hold. Orders execute at the displayed outcome price (there is no 
 - The last good listing is cached in `localStorage` for instant startup (used if under 24 hours old).
 - **Fallback 1, snapshot**: if the browser can't reach the API (timeouts, CORS, network policy, regional blocks,
   rate limits, malformed responses), the app loads `data/snapshot.json` from its own origin and the header shows
-  **Delayed odds**. The deploy workflow rebuilds the site every hour with a fresh snapshot fetched server-side by
+  **Delayed odds**. The deploy workflow rebuilds the site every 15 minutes with a fresh snapshot fetched server-side by
   `scripts/build-snapshot.mjs`, including the results of markets closed in the last 30 days, so held positions
   still settle.
 - **Fallback 2, demo data**: with no snapshot either, the app switches to a bundled dataset (24 Sports and 12
@@ -103,6 +104,30 @@ the shares you hold. Orders execute at the displayed outcome price (there is no 
   reconnecting instead.
 - When no price history is available, the chart shows a deterministic synthetic series that ends at the current
   price and is labelled as simulated. Missing order books are replaced with a labelled simulated book.
+
+## Chaminade markets
+
+The **Chaminade** tab has house markets on Chaminade High School (Mineola, NY) games, every level from varsity
+to freshman, for the next two weeks.
+
+- **Source**: the school's SIDEARM athletics calendar feed
+  (`https://athletics.chaminade-hs.org/services/responsive-calendar.ashx?type=month&sport=0&location=all&date=M/1/YYYY`),
+  which lists each game's team, opponent, home/away, status (upcoming, over, postponed, canceled) and final score.
+  The feed doesn't allow browser requests (no CORS), so `scripts/build-snapshot.mjs` fetches it in the deploy
+  workflow and ships `data/chaminade.json` with the site. Multi-team meets, invitationals and regattas are
+  skipped because there's no single opponent.
+- **Markets**: "Will Chaminade beat …?" for every head-to-head game, plus an over/under on the total score for
+  football, soccer, basketball, hockey, lacrosse and baseball once a team has 3 scored games.
+- **Odds** are set by Chami Market (`src/services/chaminade.js`), since no betting market exists. The model takes
+  this season's average margin for that team (shrunk toward even when there are few games), blends in any
+  earlier meeting with the same opponent, adds home field, and converts to a win probability using the typical
+  margin spread for the sport (ties count as a loss in soccer and hockey). Win odds are clamped to 15%–85%, so
+  there are no long shots or near-locks. Over/under lines sit at the season's average total, so they open
+  close to 50/50.
+- **Settlement**: trading closes at the scheduled start. The workflow runs every 15 minutes and settles markets
+  as soon as the school posts the final score: winner markets on W/L/T, over/unders on the combined score.
+  Canceled or postponed games, and games with no posted result after 3 days, are voided (refunded at cost).
+  Over/under ids carry their line, so a market always settles against the line it was traded at.
 
 ## Curation rules
 
