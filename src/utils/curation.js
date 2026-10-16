@@ -4,11 +4,11 @@
  *
  * A market is listed only when it:
  *  - has an end date that is still in the future and no later than June 1, 2027
+ *  - is priced between 6% and 95%, unless it is a ceasefire, alien, political
+ *    agreement or championship-style market (those are listed at any price)
  *  - is not esports
  *  - for soccer: belongs to a top European league, the Champions League or the Ballon d'Or
  *  - for politics: is not a tweet/mention/meme market and is relevant to a US audience
- *  - for long-shot prone markets only (ceasefires, aliens, political agreements and
- *    championship-style futures): is priced between 6% and 95%
  */
 export const END_DATE_CUTOFF = Date.parse('2027-06-02T00:00:00Z')
 export const MIN_PROBABILITY = 0.06
@@ -132,10 +132,10 @@ export function isChampionshipFuture(m) {
 }
 
 /**
- * Markets where long shots pile up and add clutter. Only these are held to
- * the 6% to 95% odds range; everything else is listed at any price.
+ * Market types listed at any price. Every other market must be priced
+ * between 6% and 95%.
  */
-export function isOddsFiltered(m) {
+export function isOddsExempt(m) {
   const text = `${m.title} ${m.eventTitle ?? ''}`.toLowerCase()
   if (CEASEFIRE.test(text) || ALIENS.test(text)) return true
   if (m.category === 'politics' && AGREEMENT.test(text)) return true
@@ -164,7 +164,7 @@ export function exclusionReason(m, now = Date.now()) {
     if (isJunkPolitics(m)) return 'junk-politics'
     if (isLowRelevanceInternational(m)) return 'low-relevance-international'
   }
-  if (isOddsFiltered(m) && (m.yesPrice < MIN_PROBABILITY || m.yesPrice > MAX_PROBABILITY)) return 'lopsided-odds'
+  if ((m.yesPrice < MIN_PROBABILITY || m.yesPrice > MAX_PROBABILITY) && !isOddsExempt(m)) return 'lopsided-odds'
   return null
 }
 

@@ -148,9 +148,9 @@ describe('live data flow', () => {
     const s = useMarketStore.getState()
     expect(s.source).toBe('live')
     expect(s.tagIds).toEqual({ sports: '1', politics: '2' })
-    // 14: 4th market of one event; 31: MLS; 41: ends after June 1 2027; 51: 1% championship long shot;
-    // 61: esports; 78: tweets; 79: Brazil. 71 is a 1% market but not a filtered type, so it stays.
-    expect([...s.order].sort()).toEqual(['11', '12', '13', '21', '71', '77'])
+    // 14: 4th market of one event; 31: MLS; 41: ends after June 1 2027; 61: esports; 71: 1% odds;
+    // 78: tweets; 79: Brazil. 51 is a 1% championship future, which is exempt from the odds rule.
+    expect([...s.order].sort()).toEqual(['11', '12', '13', '21', '51', '77'])
     expect(s.markets['11'].league).toBe('nfl')
     expect(s.markets['11'].labels).toEqual({ yes: 'Chiefs', no: 'Bills' })
     expect(s.markets['21'].league).toBe('epl')
