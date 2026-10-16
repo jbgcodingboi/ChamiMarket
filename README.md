@@ -255,6 +255,11 @@ browser. Connecting a free [Supabase](https://supabase.com) project turns Chami 
   Usernames can't copy a simulated player or look official (look-alikes such as `quietkeIIy` included).
 - **Delete account** in the account menu, after typing DELETE to confirm. The server
   (`delete_account`) removes the login and everything tied to it, including leaderboard rows and feed entries.
+- **Feedback**: a slim Feedback tab on the right edge (backend mode) sends suggestions and bug reports to a
+  private `feedback` table that only the service role can read. Read them in the Supabase Table Editor, or run
+  Actions › "Admin - feedback report" with a public key from `node scripts/decrypt-feedback.mjs keys <dir>`: the
+  report is encrypted (the repository's logs are public), and `node scripts/decrypt-feedback.mjs read <dir> <log>`
+  decrypts a saved run log. Limits: 5 an hour per player, 20 an hour from all guests, 1,000 a day, 2,000 unread.
 - **Removing a player as the site owner**: Actions tab › "Admin - delete a player" › Run workflow, with their
   username and DELETE. It deletes their login with the service role key and everything else cascades with it.
 - **Terms**: a first-visit pop-up with just a link to the full Terms of Use and one "I understand and agree" button
