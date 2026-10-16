@@ -3,6 +3,9 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches: [main]
+  # Hourly refresh of the bundled odds and results snapshot (public/data/snapshot.json).
+  schedule:
+    - cron: '17 * * * *'
   workflow_dispatch:
 
 permissions:
@@ -25,6 +28,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+      - name: Fetch odds and results snapshot
+        run: npm run snapshot
       - run: npm run build
       - uses: actions/upload-pages-artifact@v3
         with:

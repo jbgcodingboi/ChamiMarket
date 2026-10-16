@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useAccountStore } from '../../store/accountStore.js'
 import { marketPrice } from '../../store/prices.js'
+import { hasEnded } from '../../utils/curation.js'
 import { formatCents, formatCurrency, formatPercent, formatShares, formatSignedCurrency, pnlTone } from '../../utils/format.js'
 import { avgPrice, positionValue, unrealizedPnl } from '../../utils/portfolio.js'
 import SellModal from '../portfolio/SellModal.jsx'
@@ -50,7 +51,9 @@ export default function PositionSummary({ market }) {
                   </span>
                 </p>
               </div>
-              {!market.closed && (
+              {market.closed || hasEnded(market) ? (
+                <span className="ml-auto text-xs text-muted">Awaiting result</span>
+              ) : (
                 <button type="button" className="btn btn-ghost ml-auto px-3 py-1.5" onClick={() => setSelling(p)}>
                   Sell
                 </button>

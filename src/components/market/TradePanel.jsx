@@ -1,9 +1,11 @@
 import { useId, useRef, useState } from 'react'
 import { useAccountStore } from '../../store/accountStore.js'
 import { marketPrice } from '../../store/prices.js'
+import { useNow } from '../../hooks/useNow.js'
 import { useResolution } from '../../store/resolutionStore.js'
 import { toast } from '../../store/toastStore.js'
 import { useUiStore } from '../../store/uiStore.js'
+import { hasEnded } from '../../utils/curation.js'
 import { formatCents, formatCurrency, formatPercent, formatShares, formatSignedCurrency } from '../../utils/format.js'
 import { roundMoney } from '../../utils/math.js'
 import { positionKey } from '../../utils/portfolio.js'
@@ -190,12 +192,24 @@ export default function TradePanel({ market, side, onSideChange, onDone }) {
   const resolution = useResolution(market.id)
   const user = useAccountStore((s) => s.user)
   const position = useAccountStore((s) => s.portfolio?.positions[positionKey(market.id, side)] ?? null)
+  const now = useNow(30000)
 
   if (market.acceptingOrders === false && !resolution && !market.closed) {
     return (
       <div className="card space-y-2 p-4">
         <h2 className="font-semibold">Trading paused</h2>
         <p className="text-sm text-muted">This market is not accepting orders right now. Check back soon.</p>
+      </div>
+    )
+  }
+
+  if (!resolution && !market.closed && hasEnded(market, now)) {
+    return (
+      <div className="card space-y-2 p-4">
+        <h2 className="font-semibold">Trading closed</h2>
+        <p className="text-sm text-muted">
+          This event has ended. Positions settle automatically as soon as the official result is in.
+        </p>
       </div>
     )
   }

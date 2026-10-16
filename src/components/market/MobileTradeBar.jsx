@@ -1,5 +1,7 @@
 import { useState } from 'react'
+import { useNow } from '../../hooks/useNow.js'
 import { useResolution } from '../../store/resolutionStore.js'
+import { hasEnded } from '../../utils/curation.js'
 import { formatCents } from '../../utils/format.js'
 import Modal from '../ui/Modal.jsx'
 import TradePanel from './TradePanel.jsx'
@@ -8,7 +10,8 @@ import TradePanel from './TradePanel.jsx'
 export default function MobileTradeBar({ market, side, onSideChange }) {
   const [open, setOpen] = useState(false)
   const resolution = useResolution(market.id)
-  if (resolution || market.closed || market.acceptingOrders === false) return null
+  const now = useNow(30000)
+  if (resolution || market.closed || market.acceptingOrders === false || hasEnded(market, now)) return null
 
   const openWith = (s) => {
     onSideChange(s)

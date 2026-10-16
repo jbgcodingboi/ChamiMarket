@@ -1,8 +1,11 @@
-import { memo } from 'react'
+import { memo, useState } from 'react'
 import { MarketCardSkeleton } from '../ui/Skeleton.jsx'
 import MarketCard from './MarketCard.jsx'
 
+const PAGE = 48
+
 function MarketGrid({ markets, loading, empty }) {
+  const [limit, setLimit] = useState(PAGE)
   if (loading) {
     return (
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3" role="status" aria-label="Loading markets">
@@ -14,10 +17,19 @@ function MarketGrid({ markets, loading, empty }) {
   }
   if (!markets.length) return empty
   return (
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-      {markets.map((m) => (
-        <MarketCard key={m.id} market={m} />
-      ))}
+    <div className="space-y-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {markets.slice(0, limit).map((m) => (
+          <MarketCard key={m.id} market={m} />
+        ))}
+      </div>
+      {markets.length > limit && (
+        <div className="text-center">
+          <button type="button" className="btn btn-ghost" onClick={() => setLimit((l) => l + PAGE)}>
+            Show more markets ({markets.length - limit} more)
+          </button>
+        </div>
+      )}
     </div>
   )
 }

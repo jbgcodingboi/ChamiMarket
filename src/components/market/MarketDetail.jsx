@@ -2,7 +2,9 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { CATEGORIES } from '../../config.js'
 import { flashClass, usePriceFlash } from '../../hooks/usePriceFlash.js'
+import { useNow } from '../../hooks/useNow.js'
 import { useResolution } from '../../store/resolutionStore.js'
+import { hasEnded } from '../../utils/curation.js'
 import { formatCents, formatCompactCurrency, formatDate, formatProbability } from '../../utils/format.js'
 import { ChevronLeftIcon } from '../ui/Icons.jsx'
 import Tabs from '../ui/Tabs.jsx'
@@ -12,7 +14,6 @@ import OrderBook from './OrderBook.jsx'
 import OutcomeBadge from './OutcomeBadge.jsx'
 import PositionSummary from './PositionSummary.jsx'
 import PriceChart from './PriceChart.jsx'
-import ResolveMarket from './ResolveMarket.jsx'
 import TradePanel from './TradePanel.jsx'
 
 const categoryLabel = Object.fromEntries(CATEGORIES.map((c) => [c.id, c.label]))
@@ -42,7 +43,9 @@ function OutcomeRow({ market, side, active, onSelect }) {
 export default function MarketDetail({ market, side, onSideChange }) {
   const [tab, setTab] = useState('book')
   const resolution = useResolution(market.id)
-  const locked = Boolean(resolution) || market.closed
+  const now = useNow(30000)
+  const ended = hasEnded(market, now)
+  const locked = Boolean(resolution) || market.closed || ended
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 pb-28 lg:pb-6">
@@ -60,10 +63,12 @@ export default function MarketDetail({ market, side, onSideChange }) {
                 {market.source === 'mock' && <span className="ml-2 rounded bg-surface-3 px-1.5 py-0.5">Demo market</span>}
               </p>
               <h1 className="mt-1 text-xl leading-tight font-bold text-balance sm:text-2xl">{market.title}</h1>
-              {resolution && (
+              {resolution ? (
                 <div className="mt-2">
                   <OutcomeBadge outcome={resolution.outcome} labels={market.labels} />
                 </div>
+              ) : (
+                ended && <p className="mt-2 text-sm text-warn">Event ended. Awaiting the official result.</p>
               )}
             </div>
           </header>
@@ -94,15 +99,13 @@ export default function MarketDetail({ market, side, onSideChange }) {
                   {market.eventTitle && <p className="font-medium text-fg">{market.eventTitle}</p>}
                   <p className="whitespace-pre-line">{market.description || 'No rules were provided for this market.'}</p>
                   <p className="text-xs text-subtle">
-                    Ends {formatDate(market.endDate)}. On RedBook Markets, resolution is simulated: winning shares
-                    pay $1.00 in play money and losing shares pay $0.00.
+                    Ends {formatDate(market.endDate)}. Markets settle automatically from the official result:
+                    winning shares pay $1.00 in play money and losing shares pay $0.00.
                   </p>
                 </div>
               )}
             </div>
           </section>
-
-          <ResolveMarket market={market} />
         </div>
 
         <aside className="hidden lg:block" aria-label="Trade">

@@ -83,11 +83,6 @@ export const LogOutIcon = (p) => (
     <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
   </Svg>
 )
-export const GavelIcon = (p) => (
-  <Svg {...p}>
-    <path d="m14 13-7.5 7.5a2.1 2.1 0 0 1-3-3L11 10M16 16l6-6M8 8l6-6M9 7l8 8M21 11l-8-8" />
-  </Svg>
-)
 export const InfoIcon = (p) => (
   <Svg {...p}>
     <circle cx="12" cy="12" r="10" />

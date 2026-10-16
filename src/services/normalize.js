@@ -44,7 +44,19 @@ function detectResolvedOutcome({ closed, yesPrice, noPrice }) {
   return null
 }
 
-export function normalizeGammaMarket(raw, category) {
+/** Event tags as lowercase slugs and labels, used to classify leagues and topics. */
+function normalizeTags(tags) {
+  if (!Array.isArray(tags)) return []
+  const out = new Set()
+  for (const t of tags) {
+    for (const v of [t?.slug, t?.label]) {
+      if (typeof v === 'string' && v.trim()) out.add(v.trim().toLowerCase().slice(0, 60))
+    }
+  }
+  return [...out].slice(0, 16)
+}
+
+export function normalizeGammaMarket(raw, category, { league = null } = {}) {
   if (!raw || typeof raw !== 'object') return null
   const id = typeof raw.id === 'string' || typeof raw.id === 'number' ? String(raw.id) : null
   const title = cleanText(raw.question, 300)
@@ -69,9 +81,11 @@ export function normalizeGammaMarket(raw, category) {
     id,
     slug: cleanText(raw.slug, 200),
     title,
-    description: cleanText(raw.description),
+    description: cleanText(raw.description, 2000),
     eventTitle: cleanText(event?.title, 300),
     category,
+    league,
+    tags: normalizeTags(event?.tags),
     image: toImage(raw.image) || toImage(raw.icon) || toImage(event?.image),
     labels: { yes: outcomes[0].trim(), no: outcomes[1].trim() },
     yesPrice,
@@ -80,7 +94,7 @@ export function normalizeGammaMarket(raw, category) {
     volume: toNumber(raw.volumeNum) ?? toNumber(raw.volume) ?? 0,
     volume24h: toNumber(raw.volume24hr) ?? 0,
     liquidity: toNumber(raw.liquidityNum) ?? toNumber(raw.liquidity) ?? 0,
-    endDate: toDateString(raw.endDate),
+    endDate: toDateString(raw.endDate) || toDateString(event?.endDate),
     createdAt: toDateString(raw.createdAt) || toDateString(raw.startDate),
     active: raw.active !== false,
     closed,
