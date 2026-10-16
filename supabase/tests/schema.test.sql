@@ -432,11 +432,11 @@ select pg_temp.ok((select encrypted_password = extensions.crypt('brand new passw
 select jsonb_array_length(public.leaderboard()) as players_before \gset
 set role authenticated;
 select set_config('request.jwt.claim.sub', :'bob', false);
-select pg_temp.ok(public.delete_account('wrong password') ->> 'error' like '%not right%', 'deleting needs the right password');
+select pg_temp.ok(public.delete_account('delete me') ->> 'error' like '%Type DELETE%', 'deleting needs the confirmation word');
 reset role;
-select pg_temp.ok(exists (select 1 from public.profiles where id = :'bob'), 'a wrong password deletes nothing');
+select pg_temp.ok(exists (select 1 from public.profiles where id = :'bob'), 'without it nothing is deleted');
 set role authenticated;
-select pg_temp.ok((public.delete_account('brand new password') ->> 'deleted')::boolean, 'the right password deletes the account');
+select pg_temp.ok((public.delete_account(' delete ') ->> 'deleted')::boolean, 'typing DELETE deletes the account (any case, spaces trimmed)');
 reset role;
 select pg_temp.ok(not exists (select 1 from auth.users where id = :'bob')
   and not exists (select 1 from public.profiles where id = :'bob')

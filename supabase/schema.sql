@@ -851,19 +851,19 @@ begin
 end $$;
 
 /**
- * Deletes the caller's account for good once the password checks out:
- * profile, portfolio, positions, history, game rounds and state, seeds,
- * recovery codes, snapshots and feed entries all go with it (they cascade
- * from auth.users). A wrong password comes back as {error}, not a raise.
+ * Deletes the caller's account for good: profile, portfolio, positions,
+ * history, game rounds and state, seeds, recovery codes, snapshots and feed
+ * entries all go with it (they cascade from auth.users). The player must be
+ * signed in and send the word they typed to confirm ("DELETE"), so nothing
+ * deletes an account by accident.
  */
-create or replace function public.delete_account(p_password text) returns jsonb
+drop function if exists public.delete_account(text);
+create or replace function public.delete_account(p_confirm text) returns jsonb
 language plpgsql volatile security definer set search_path = '' as $$
-declare v_user uuid := private.uid(); v_ok boolean;
+declare v_user uuid := private.uid();
 begin
   perform private.rate_limit(v_user, 'delete', 5);
-  select u.encrypted_password is not null and u.encrypted_password = extensions.crypt(coalesce(p_password, ''), u.encrypted_password)
-    into v_ok from auth.users u where u.id = v_user;
-  if not coalesce(v_ok, false) then return jsonb_build_object('error', 'That password is not right.'); end if;
+  if upper(trim(coalesce(p_confirm, ''))) <> 'DELETE' then return jsonb_build_object('error', 'Type DELETE to confirm.'); end if;
   delete from private.rate_limits where user_id = v_user;
   delete from auth.users where id = v_user;
   return jsonb_build_object('deleted', true);

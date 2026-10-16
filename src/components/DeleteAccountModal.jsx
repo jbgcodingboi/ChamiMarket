@@ -9,14 +9,12 @@ import Modal from './ui/Modal.jsx'
 function DeleteForm({ onCancel, onDone }) {
   const user = useAccountStore((s) => s.user)
   const deleteAccount = useAccountStore((s) => s.deleteAccount)
-  const [name, setName] = useState('')
-  const [password, setPassword] = useState('')
+  const [text, setText] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const done = useRef(false)
-  const nameId = useId()
-  const passId = useId()
-  const armed = name.trim() === user.username && password.length > 0
+  const id = useId()
+  const armed = text.trim().toUpperCase() === 'DELETE'
 
   const confirm = async (e) => {
     e.preventDefault()
@@ -25,7 +23,7 @@ function DeleteForm({ onCancel, onDone }) {
     setBusy(true)
     setError('')
     try {
-      await deleteAccount({ password })
+      await deleteAccount({ confirm: text })
       toast({ title: 'Account deleted', description: 'Your account and everything tied to it are gone.' })
       onDone()
     } catch (err) {
@@ -52,22 +50,17 @@ function DeleteForm({ onCancel, onDone }) {
         </div>
       </div>
       <div>
-        <label htmlFor={nameId} className="mb-1.5 block text-sm font-medium">
-          Type your username, <span className="font-mono text-fg">{user.username}</span>, to confirm
-        </label>
-        <input id={nameId} value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" autoCapitalize="none" spellCheck="false" className="input font-mono" />
-      </div>
-      <div>
-        <label htmlFor={passId} className="mb-1.5 block text-sm font-medium">
-          Password
+        <label htmlFor={id} className="mb-1.5 block text-sm font-medium">
+          Type DELETE to confirm
         </label>
         <input
-          id={passId}
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          autoComplete="current-password"
-          className="input"
+          id={id}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          autoComplete="off"
+          autoCapitalize="characters"
+          spellCheck="false"
+          className="input font-mono tracking-widest"
           aria-invalid={error ? 'true' : undefined}
         />
       </div>
@@ -88,7 +81,7 @@ function DeleteForm({ onCancel, onDone }) {
   )
 }
 
-/** Stern confirmation for deleting the signed-in account: type the username and the password. */
+/** Stern confirmation for deleting the signed-in account: type DELETE, like resetting the balance. */
 export default function DeleteAccountModal() {
   const open = useUiStore((s) => s.deleteOpen)
   const setOpen = useUiStore((s) => s.setDeleteOpen)
