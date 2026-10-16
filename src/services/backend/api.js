@@ -111,6 +111,12 @@ export async function deleteAccount(confirm) {
   await sb.auth.signOut({ scope: 'local' }).catch(() => {})
 }
 
+/** Sends a message from the Feedback tab. Works signed in or as a guest. */
+export async function submitFeedback({ category, message, page }) {
+  const res = await rpc('submit_feedback', { p_category: category, p_message: message, p_page: page ?? null })
+  if (res?.error) throw new BackendError(res.error)
+}
+
 // Portfolio and trading --------------------------------------------------------
 
 export const getPortfolio = () => rpc('get_portfolio')

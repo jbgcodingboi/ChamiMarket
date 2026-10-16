@@ -1,0 +1,47 @@
+name: Admin - feedback report
+
+# Run by hand: exports feedback from the Feedback tab, encrypted to the given
+# public key, because this repository's logs are public
+# (scripts/admin-feedback-report.mjs). The owner can also read feedback in the
+# Supabase Table Editor (table: feedback).
+on:
+  workflow_dispatch:
+    inputs:
+      public_key:
+        description: Base64 RSA public key to encrypt the report to
+        required: true
+        type: string
+      status:
+        description: Which messages (new or all)
+        required: true
+        default: new
+        type: choice
+        options: [new, all]
+      mark_reviewed:
+        description: Mark the exported new messages as reviewed
+        required: true
+        default: false
+        type: boolean
+
+permissions: {}
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - run: node scripts/admin-feedback-report.mjs
+        env:
+          PUBLIC_KEY: ${{ inputs.public_key }}
+          STATUS: ${{ inputs.status }}
+          MARK_REVIEWED: ${{ inputs.mark_reviewed }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
