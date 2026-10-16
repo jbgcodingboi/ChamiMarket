@@ -18,6 +18,7 @@ import { displayNameFor, isEmail, isReservedName, validateIdentifier, validatePa
 import { BACKEND_ENABLED, usernameFor } from '../services/backend/config.js'
 import * as backend from '../services/backend/api.js'
 import { useFeedStore } from './feedStore.js'
+import { useUiStore } from './uiStore.js'
 import { getMarket } from './marketStore.js'
 import { getOutcomePrice, marketPrice } from './prices.js'
 import { useResolutionStore } from './resolutionStore.js'
@@ -37,11 +38,11 @@ const isAccount = (a) =>
   a.iterations >= 1000 &&
   a.iterations <= 10_000_000
 
-const isAccounts = (v) => Array.isArray(v) && v.every(isAccount)
 const isSession = (v) => isPlainObject(v) && typeof v.userId === 'string'
 
+/** Local accounts. A damaged entry is skipped, never allowed to wipe out the others. */
 export function readAccounts() {
-  return readJSON(ACCOUNTS_KEY, isAccounts, [])
+  return readJSON(ACCOUNTS_KEY, Array.isArray, []).filter(isAccount)
 }
 
 /** Loads a stored portfolio; a missing or corrupted one is replaced with a fresh account. */
@@ -57,6 +58,15 @@ const publicUser = (a) => ({ id: a.id, username: a.username, kind: a.kind })
  * is announced once.
  */
 let seenSettlements = null
+
+/**
+ * Backend mode: bumped on every log out or delete, so a server answer that
+ * was still on its way can't sign the player back in on screen.
+ */
+let sessionEpoch = 0
+
+/** Closes account dialogs that only make sense while signed in. */
+const closeAccountDialogs = () => useUiStore.setState({ resetOpen: false, deleteOpen: false })
 
 function newSettlements(portfolio) {
   const entries = portfolio.history.filter((e) => e.type === 'settlement')
@@ -113,7 +123,9 @@ export const useAccountStore = create((set, get) => ({
 
   /** Backend mode: loads the signed-in player's portfolio from the server. Returns new settlements. */
   async loadRemote(user) {
+    const epoch = sessionEpoch
     const raw = await backend.getPortfolio()
+    if (epoch !== sessionEpoch) return []
     const portfolio = fromServer(raw)
     set({ user: { ...user, username: raw.username ?? user.username }, portfolio })
     return newSettlements(portfolio)
@@ -233,7 +245,9 @@ export const useAccountStore = create((set, get) => ({
     if (!password) throw new AuthError('Enter your password.', 'password')
     if (BACKEND_ENABLED) {
       await backend.deleteAccount(password)
+      sessionEpoch += 1
       seenSettlements = null
+      closeAccountDialogs()
       set({ user: null, portfolio: null })
       return
     }
@@ -242,14 +256,17 @@ export const useAccountStore = create((set, get) => ({
     const rest = readAccounts().filter((a) => a.id !== user.id)
     writeJSON(ACCOUNTS_KEY, rest)
     removeKey(portfolioKey(user.id))
-    for (const k of ['fair', 'mines', 'chicken']) removeKey(`games:${user.id}:${k}`)
+    for (const k of ['fair', 'mines', 'chicken', 'blackjack']) removeKey(`games:${user.id}:${k}`)
     useFeedStore.getState().removeUser(user.username)
     removeKey(SESSION_KEY)
+    closeAccountDialogs()
     set({ accounts: rest, user: null, portfolio: null })
   },
 
   logOut() {
+    closeAccountDialogs()
     if (BACKEND_ENABLED) {
+      sessionEpoch += 1
       backend.logOut()
       seenSettlements = null
       set({ user: null, portfolio: null })
@@ -390,6 +407,11 @@ export const useAccountStore = create((set, get) => ({
     const { portfolio } = get()
     if (!portfolio) return
     if (BACKEND_ENABLED) return backend.resetBalance().then((p) => get().adoptRemote(p))
+    // One reset a day, the same rule as the server's.
+    const last = Math.max(0, ...portfolio.history.filter((h) => h.type === 'reset').map((h) => h.ts))
+    if (Date.now() - last < 864e5) {
+      throw new Error(`You can reset once every 24 hours. Next reset after ${new Date(last + 864e5).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}.`)
+    }
     get().commit(resetPortfolio(portfolio, Date.now(), randomId('reset')))
   },
 }))

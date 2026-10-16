@@ -1,7 +1,7 @@
 /** Shared shape for Quick markets: house-priced, short-lived, self-describing ids. */
 import { roundPrice } from '../../utils/math.js'
 
-export function quickMarket({ id, title, description, eventTitle, endDate, yesPrice, labels, avatar, createdAt }) {
+export function quickMarket({ id, title, description, eventTitle, endDate, yesPrice, labels, avatar, createdAt, quote }) {
   const p = roundPrice(yesPrice)
   return {
     id,
@@ -28,6 +28,8 @@ export function quickMarket({ id, title, description, eventTitle, endDate, yesPr
     acceptingOrders: true,
     resolvedOutcome: null,
     source: 'house',
+    // How the server prices it live at trade time (hourly crypto only).
+    ...(quote && { quote }),
   }
 }
 

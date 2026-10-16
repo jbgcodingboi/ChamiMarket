@@ -114,10 +114,17 @@ export async function deleteAccount(password) {
 // Portfolio and trading --------------------------------------------------------
 
 export const getPortfolio = () => rpc('get_portfolio')
+/** Trades report most refusals as { error } rather than raising (see private.quote); surface them as errors. */
+async function trade(name, args) {
+  const res = await rpc(name, args)
+  if (typeof res?.error === 'string') throw new BackendError(res.error)
+  return res
+}
+
 export const buy = ({ marketId, side, amount, seenPrice }) =>
-  rpc('buy', { p_market_id: marketId, p_side: side, p_amount: amount, p_seen_price: seenPrice ?? null })
+  trade('buy', { p_market_id: marketId, p_side: side, p_amount: amount, p_seen_price: seenPrice ?? null })
 export const sell = ({ marketId, side, shares, seenPrice }) =>
-  rpc('sell', { p_market_id: marketId, p_side: side, p_shares: shares, p_seen_price: seenPrice ?? null })
+  trade('sell', { p_market_id: marketId, p_side: side, p_shares: shares, p_seen_price: seenPrice ?? null })
 export const resetBalance = () => rpc('reset_balance')
 export const checkMarket = (marketId) => rpc('check_market', { p_market_id: marketId })
 

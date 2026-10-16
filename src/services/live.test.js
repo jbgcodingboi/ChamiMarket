@@ -61,6 +61,8 @@ describe('Gamma market normalization', () => {
     expect(normalizeGammaMarket(rawMarket({ closed: true, outcomePrices: '["1","0"]' }), 'sports').resolvedOutcome).toBe('yes')
     expect(normalizeGammaMarket(rawMarket({ closed: true, outcomePrices: '["0.0005","0.9995"]' }), 'sports').resolvedOutcome).toBe('no')
     expect(normalizeGammaMarket(rawMarket({ closed: true, outcomePrices: '["0.6","0.4"]' }), 'sports').resolvedOutcome).toBeNull()
+    expect(normalizeGammaMarket(rawMarket({ closed: true, outcomePrices: '["0.5","0.5"]' }), 'sports').resolvedOutcome).toBe('void')
+    expect(normalizeGammaMarket(rawMarket({ closed: false, outcomePrices: '["0.5","0.5"]' }), 'sports').resolvedOutcome).toBeNull()
     expect(normalizeGammaMarket(rawMarket({ closed: false, outcomePrices: '["1","0"]' }), 'sports').resolvedOutcome).toBeNull()
   })
 })

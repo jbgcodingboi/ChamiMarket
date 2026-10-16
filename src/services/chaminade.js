@@ -64,8 +64,8 @@ export function parseCalendar(days) {
     for (const e of Array.isArray(day?.events) ? day.events : []) {
       if (!e || seen.has(e.id) || typeof e.date !== 'string') continue
       seen.add(e.id)
-      const sport = typeof e.sport?.title === 'string' ? e.sport.title.trim() : ''
-      const opponent = typeof e.opponent?.title === 'string' ? e.opponent.title.trim().replace(/\s+/g, ' ') : ''
+      const sport = typeof e.sport?.title === 'string' ? e.sport.title.trim().slice(0, 40) : ''
+      const opponent = typeof e.opponent?.title === 'string' ? e.opponent.title.trim().replace(/\s+/g, ' ').slice(0, 80) : ''
       if (!sport || !opponent) continue
       const start = easternToUtc(e.date)
       if (!Number.isFinite(start)) continue
@@ -248,11 +248,20 @@ export function buildResults(games, now = Date.now()) {
 
 const ID_RE = /^(cham-\d+-\d{8})-(win|ou-(\d+(?:\.\d+)?))$/
 
-/** The settlement outcome ('yes' | 'no' | 'void') for a house market id, or null if pending. */
-export function houseOutcome(marketId, results) {
+/**
+ * The settlement outcome ('yes' | 'no' | 'void') for a house market id, or
+ * null if pending. Pass `now` only with results from a calendar fetch that
+ * worked: a game that has vanished from it for a week (deleted rather than
+ * canceled) then voids instead of staying open forever.
+ */
+export function houseOutcome(marketId, results, now) {
   const m = ID_RE.exec(marketId)
   const fact = m ? results[m[1]] : null
-  if (!fact) return null
+  if (!fact) {
+    const d = m?.[1].slice(-8)
+    const day = d ? Date.parse(`${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6)}T12:00:00Z`) : NaN
+    return Number.isFinite(now) && Number.isFinite(day) && now - day > 7 * DAY ? 'void' : null
+  }
   if (fact.outcome === 'void') return 'void'
   if (m[2] === 'win') return fact.outcome === 'W' ? 'yes' : 'no'
   if (fact.total === null) return 'void'

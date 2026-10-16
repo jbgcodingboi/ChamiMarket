@@ -46,6 +46,7 @@ function ResetForm({ onCancel, onDone }) {
           <li>
             <strong>This action cannot be undone.</strong> Trade history is kept with a reset marker.
           </li>
+          <li>You can reset once every 24 hours.</li>
         </ul>
       </div>
       <p className="text-sm text-muted">Resets used so far: {resetsUsed}</p>

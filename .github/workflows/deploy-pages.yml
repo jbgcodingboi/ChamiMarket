@@ -12,9 +12,10 @@ on:
 # Nothing by default; each job asks for what it needs.
 permissions: {}
 
+# Queue rather than cancel, so a scheduled refresh never kills a deploy halfway.
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:

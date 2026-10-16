@@ -24,6 +24,10 @@ describe('auth validation', () => {
     expect(validateIdentifier('cryptooracle')).toMatch(/reserved/)
     expect(isReservedName('ChaminadeOfficial')).toBe(true)
     expect(isReservedName('site_admin')).toBe(true)
+    expect(isReservedName('quietkeIIy')).toBe(true) // capital i for l
+    expect(isReservedName('m0d')).toBe(true)
+    expect(isReservedName('sim_1')).toBe(true)
+    expect(isReservedName('simon')).toBe(false)
     expect(isReservedName('trader_1')).toBe(false)
   })
   it('keeps the server list of reserved names in step', () => {

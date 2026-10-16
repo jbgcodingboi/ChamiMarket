@@ -37,7 +37,8 @@ export const STATIONS = [
 const RETIRED = [{ id: 'isp', name: 'Islip', place: 'Islip, Long Island (MacArthur Airport)', cli: 'ISP', grid: 'OKX/63,51' }]
 const NWS = 'https://api.weather.gov'
 const HIGH_CLOSE = '11:00'
-const PRECIP_CLOSE = '07:00'
+// Rain counts from midnight, so trading stops as the day begins (before any of it can fall).
+const PRECIP_CLOSE = '00:00'
 const SIGMA_BY_DAY = [2.5, 3.5]
 const LINE_STEP = 5
 const MIN_P = 0.12
@@ -117,7 +118,7 @@ export function buildWeatherMarkets(station, periods, now) {
           id: precipId(station.id, date),
           title: `Rain or snow at ${station.name} ${dayIndex ? 'tomorrow' : 'today'}?`,
           eventTitle: `${station.place} · ${etDayLabel(date)} · ${Math.round(fc.popDay * 100)}% chance in the daytime forecast`,
-          description: `Resolves Yes if the National Weather Service Daily Climate Report for ${where} records at least 0.01 inches of precipitation (rain or melted snow) on ${etDayLabel(date)}. A trace does not count.${note} A Yes can settle from the 4 PM report; a No settles from the final report issued overnight. Trading closes at 7:00 AM ET that day. Odds come from the NWS chance of precipitation for ${station.place}.`,
+          description: `Resolves Yes if the National Weather Service Daily Climate Report for ${where} records at least 0.01 inches of precipitation (rain or melted snow) on ${etDayLabel(date)}. A trace does not count.${note} A Yes can settle from the 4 PM report; a No settles from the final report issued overnight. Trading closes at midnight ET as the day begins. Odds come from the NWS chance of precipitation for ${station.place}.`,
           endDate: precipClose,
           createdAt: precipClose - 2 * 864e5,
           yesPrice: clamp(pp, 0.15, 0.85),
@@ -198,7 +199,11 @@ export async function fetchForecast(station) {
 /** The station's most recent climate reports (preliminary and final), parsed. */
 export async function fetchClimateReports(station) {
   const list = await fetchJson(`${NWS}/products/types/CLI/locations/${station.cli}`, { memoMs: 600000 })
-  const ids = (Array.isArray(list?.['@graph']) ? list['@graph'] : []).slice(0, 6).map((p) => p?.id).filter(Boolean)
+  if (!Array.isArray(list?.['@graph'])) throw new Error(`No climate report list for ${station.name}`)
+  // Two reports a day, so ten cover the four days a market waits before it voids.
+  const ids = list['@graph'].slice(0, 10).map((p) => p?.id).filter(Boolean)
   const products = await Promise.allSettled(ids.map((id) => fetchJson(`${NWS}/products/${id}`, { memoMs: 3600000 })))
-  return products.map((r) => (r.status === 'fulfilled' ? parseClimateReport(r.value?.productText) : null)).filter(Boolean)
+  // If any report failed to load, the missing one might be the answer, so report an error rather than a void.
+  if (products.some((r) => r.status === 'rejected')) throw new Error(`Some climate reports for ${station.name} failed to load`)
+  return products.map((r) => parseClimateReport(r.value?.productText)).filter(Boolean)
 }
