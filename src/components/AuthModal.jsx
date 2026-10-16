@@ -172,7 +172,7 @@ export default function AuthModal() {
   const openAuth = useUiStore((s) => s.openAuth)
   const close = useUiStore((s) => s.closeAuth)
   return (
-    <Modal open={auth.open} onClose={close} title={auth.mode === 'signup' ? 'Create your paper account' : 'Log in to RedBook'} size="sm">
+    <Modal open={auth.open} onClose={close} title={auth.mode === 'signup' ? 'Create your paper account' : 'Log in to Chami Market'} size="sm">
       <AuthForm
         key={auth.open ? 'open' : 'closed'}
         mode={auth.mode}

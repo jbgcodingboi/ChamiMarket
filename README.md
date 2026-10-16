@@ -1,10 +1,10 @@
-# RedBook Markets
+# Chami Market
 
 A paper trading prediction market. Browse live Sports and Top Politics odds, buy and sell Yes/No shares with
 **play money**, and track your PnL, net worth and rank. Everything runs in the browser: there is no backend, no
 real money, nothing to fund and nothing to cash out.
 
-> **Paper trading, play money only.** RedBook Markets is an independent demo. It is not affiliated with, endorsed
+> **Paper trading, play money only.** Chami Market is an independent demo. It is not affiliated with, endorsed
 > by or connected to Polymarket or any other prediction market or exchange. Balances have no cash value and
 > nothing here is financial advice.
 

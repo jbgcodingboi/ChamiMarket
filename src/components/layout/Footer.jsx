@@ -9,16 +9,16 @@ export default function Footer() {
         <div className="max-w-2xl space-y-2">
           <PaperBadge />
           <p>
-            RedBook Markets is a paper trading simulator. Every balance, trade and payout uses play money with
+            Chami Market is a paper trading simulator. Every balance, trade and payout uses play money with
             no cash value. There is nothing to fund and nothing to cash out.
           </p>
           <p className="text-xs text-subtle">
             Odds come from public prediction market data when reachable, with bundled demo data as a fallback.
-            RedBook Markets is an independent demo and is not affiliated with, endorsed by or connected to any
+            Chami Market is an independent demo and is not affiliated with, endorsed by or connected to any
             real prediction market or exchange. Nothing here is financial advice.
           </p>
         </div>
-        <p className="shrink-0 text-xs text-subtle">© {YEAR} RedBook Markets demo</p>
+        <p className="shrink-0 text-xs text-subtle">© {YEAR} Chami Market demo</p>
       </div>
     </footer>
   )
