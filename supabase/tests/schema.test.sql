@@ -85,8 +85,11 @@ select pg_temp.ok((public.get_portfolio() -> 'positions' -> '123:yes' ->> 'share
 select pg_temp.expect_error($$select public.sell('123', 'yes', 1000, 0.6)$$, '%only own%');
 select pg_temp.ok((public.buy('cham-1-20991020-win', 'no', 30, 0.3) ->> 'shares')::numeric = 100, 'house markets trade at the synced price');
 
--- Parlay priced from its legs: 0.7 x 0.6 = 0.42.
-select pg_temp.ok((public.buy('q-parlay-cham-1-20991020-win_y~cham-2-20991021-win_y', 'yes', 42, 0.42) ->> 'price')::numeric = 0.42, 'parlays are priced from their legs');
+-- Parlays are no longer offered, but one opened earlier is still priced from its legs: 0.7 x 0.6 = 0.42.
+select pg_temp.expect_error($$select public.buy('q-parlay-cham-1-20991020-win_y~cham-2-20991021-win_y', 'yes', 42, 0.42)$$, '%no longer offered%');
+reset role;
+select pg_temp.ok((select price from private.quote('q-parlay-cham-1-20991020-win_y~cham-2-20991021-win_y', 'yes')) = 0.42, 'older parlays are still priced from their legs');
+set role authenticated;
 
 -- Settlement ----------------------------------------------------------------
 reset role;
@@ -98,8 +101,8 @@ select pg_temp.ok(public.sync_resolutions('{"cham-1-20991020-win": "void"}') = 1
 reset role;
 set role authenticated;
 select set_config('request.jwt.claim.sub', :'alice', false);
--- 99900 + 40 (sale) - 30 (house) - 42 (parlay) + 100 (win) + 30 (void refund)
-select pg_temp.ok((public.get_portfolio() ->> 'cash')::numeric = 99998, 'payouts land in cash: winners $1 a share, voids at cost');
+-- 99900 + 40 (sale) - 30 (house) + 100 (win) + 30 (void refund)
+select pg_temp.ok((public.get_portfolio() ->> 'cash')::numeric = 100040, 'payouts land in cash: winners $1 a share, voids at cost');
 select pg_temp.ok((public.get_portfolio() ->> 'realizedPnl')::numeric = 40, 'realized PnL counts the sale ($0) and the win ($40)');
 select pg_temp.expect_error($$select public.buy('123', 'yes', 10, 1)$$, '%resolved%');
 
@@ -352,7 +355,7 @@ select pg_temp.ok(jsonb_array_length(public.leaderboard()) = 2, 'the leaderboard
 select pg_temp.ok((select (r ->> 'pnl')::numeric = (r ->> 'marketPnl')::numeric + (r -> 'games' ->> 'net')::numeric
   from jsonb_array_elements(public.leaderboard()) r where r ->> 'name' = 'alice'), 'markets PnL plus games net equals total PnL');
 select pg_temp.ok((select (r ->> 'netWorth')::numeric from jsonb_array_elements(public.leaderboard()) r where r ->> 'name' = 'alice')
-  = (public.get_portfolio() ->> 'cash')::numeric + 42, 'net worth counts cash plus open positions (an unpriced parlay at cost)');
+  = (public.get_portfolio() ->> 'cash')::numeric, 'net worth is cash when nothing is open');
 
 -- Reset ---------------------------------------------------------------------
 select pg_temp.ok((public.reset_balance() ->> 'cash')::numeric = 50000, 'reset starts a $50,000 run');
@@ -363,7 +366,7 @@ select pg_temp.ok((public.get_portfolio() -> 'games' ->> 'runRounds')::int = 0, 
 reset role;
 set role anon;
 select set_config('request.jwt.claim.sub', '', false);
-select pg_temp.ok((select count(*) from public.activity where kind = 'buy') = 3, 'anyone can read the activity feed');
+select pg_temp.ok((select count(*) from public.activity where kind = 'buy') = 2, 'anyone can read the activity feed');
 select pg_temp.ok((select count(*) from public.portfolios) = 0, 'guests can''t read portfolios');
 select pg_temp.expect_error($$select public.buy('123', 'yes', 10, 0.5)$$, '%permission denied%');
 select pg_temp.ok(public.username_available('carol') and not public.username_available('Alice'), 'username availability is case-insensitive');

@@ -10,6 +10,8 @@ import ErrorBoundary from './components/ui/ErrorBoundary.jsx'
 import { PageSkeleton } from './components/ui/Skeleton.jsx'
 import Toaster from './components/ui/Toaster.jsx'
 import ScrollToTop from './components/layout/ScrollToTop.jsx'
+import CornerNotice from './components/legal/CornerNotice.jsx'
+import TermsGate from './components/legal/TermsGate.jsx'
 
 const HomePage = lazy(() => import('./pages/HomePage.jsx'))
 const MarketPage = lazy(() => import('./pages/MarketPage.jsx'))
@@ -22,6 +24,7 @@ const PlinkoPage = lazy(() => import('./pages/games/PlinkoPage.jsx'))
 const DicePage = lazy(() => import('./pages/games/DicePage.jsx'))
 const MinesPage = lazy(() => import('./pages/games/MinesPage.jsx'))
 const ChickenPage = lazy(() => import('./pages/games/ChickenPage.jsx'))
+const TermsPage = lazy(() => import('./pages/TermsPage.jsx'))
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage.jsx'))
 
 function AppRoutes() {
@@ -41,6 +44,7 @@ function AppRoutes() {
           <Route path="/games/dice" element={<DicePage />} />
           <Route path="/games/mines" element={<MinesPage />} />
           <Route path="/games/chicken" element={<ChickenPage />} />
+          <Route path="/terms" element={<TermsPage />} />
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </Suspense>
@@ -71,6 +75,8 @@ export default function App() {
       <ResetBalanceModal />
       <RecoveryCodeModal />
       <Toaster />
+      <CornerNotice />
+      <TermsGate />
     </HashRouter>
   )
 }

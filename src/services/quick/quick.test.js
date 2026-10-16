@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { etInstant } from '../../utils/time.js'
 import { aboveId, buildCoinMarkets, COINS, cryptoOutcome, hourlyEnd, parseCryptoId, probAbove, sigmaFromCandles, strikesFor, upDownId, upDownStarts } from './crypto.js'
 import { espnOutcome, isEspnSettleable, parseScoreboard } from './espn.js'
-import { buildParlays, parlayOutcome, parseParlayId } from './parlays.js'
+import { parlayId, parlayOutcome, parseParlayId } from './parlays.js'
 import { buildStockMarkets, isTradingDay, nextSession, parseStockId, parseYahooChart, previousSession, stockOutcome } from './stocks.js'
 import { buildWeatherMarkets, parseClimateReport, parseForecast, parseWeatherId, probHighAtLeast, STATIONS, weatherOutcome } from './weather.js'
 
@@ -95,6 +95,22 @@ describe('weather', () => {
     const rain = early.find((m) => m.title.startsWith('Rain or snow'))
     expect(rain.yesPrice).toBeCloseTo(1 - 0.4 * 0.8, 2)
   })
+  it('lists Mineola from its own forecast and settles it at JFK, the closest climate station', () => {
+    const mineola = STATIONS.find((st) => st.id === 'mnl')
+    expect(STATIONS.map((st) => st.name)).toEqual(['Central Park', 'Mineola'])
+    expect(mineola.cli).toBe('JFK')
+    const forecast = { properties: { periods: [
+      { startTime: '2026-10-16T06:00:00-04:00', isDaytime: true, temperature: 75, temperatureUnit: 'F', probabilityOfPrecipitation: { value: 60 } },
+    ] } }
+    const markets = buildWeatherMarkets(mineola, parseForecast(forecast), Date.parse('2026-10-16T09:00:00Z'))
+    const high = markets.find((m) => m.title === 'Mineola hits 75°F today?')
+    expect(high.id).toBe('q-wx-mnl-high-20261016-75')
+    expect(high.yesPrice).toBeCloseTo(probHighAtLeast(75, 75, 3.5), 3)
+    expect(high.description).toContain('JFK Airport')
+    expect(parseWeatherId(high.id).station.name).toBe('Mineola')
+    // Islip is no longer listed, but older positions still find their station.
+    expect(parseWeatherId('q-wx-isp-high-20261015-60').station.cli).toBe('ISP')
+  })
   it('settles highs early on a Yes and otherwise from the final report', () => {
     const reports = [parseClimateReport(PRELIM), parseClimateReport(FINAL)]
     const now = Date.parse('2026-10-16T12:00:00Z')
@@ -165,31 +181,11 @@ describe('ESPN settlement', () => {
   })
 })
 
-describe('parlays', () => {
-  const now = Date.parse('2026-10-16T16:00:00Z')
-  const game = (id, a, b, yes, volume, hours = 6) => ({
-    id, title: `${a} vs. ${b}`, category: 'sports', league: 'nba', labels: { yes: a, no: b },
-    yesPrice: yes, noPrice: Math.round((1 - yes) * 100) / 100, volume, endDate: new Date(now + hours * 3600e3).toISOString(),
-  })
-  const markets = [
-    game('1', 'Knicks', 'Raptors', 0.7, 900),
-    game('2', 'Thunder', 'Rockets', 0.35, 800), // Rockets favored at 65%
-    game('3', 'Lakers', 'Warriors', 0.5, 700), // coin flip: no favorite
-    game('4', 'Celtics', 'Nets', 0.9, 600), // too heavy a favorite
-    game('5', 'Bulls', 'Heat', 0.6, 500),
-    game('6', 'Suns', 'Jazz', 0.62, 400, 30), // more than 24h away
-  ]
-  it('combines same-day favorites and never builds long shots', () => {
-    const parlays = buildParlays(markets, now)
-    // Knicks and Rockets pair up; Bulls is left without a partner. Lakers (50/50), Celtics (90%) and Suns (30h away) never qualify.
-    expect(parlays.map((p) => p.title)).toEqual(['Parlay: Knicks + Rockets'])
-    expect(parlays[0].yesPrice).toBeCloseTo(0.7 * 0.65, 4)
-    expect(parlays.every((p) => p.yesPrice >= 0.15)).toBe(true)
-  })
+describe('parlays (no longer listed, still settled)', () => {
   it('round-trips legs through the id and settles from them', () => {
-    const [p] = buildParlays(markets, now)
-    const legs = parseParlayId(p.id)
-    expect(legs).toEqual([{ id: '1', side: 'yes' }, { id: '2', side: 'no' }])
+    const legs = parseParlayId(parlayId([{ id: '1', side: 'yes' }, { id: 'cham-2-20991021-win', side: 'no' }]))
+    expect(legs).toEqual([{ id: '1', side: 'yes' }, { id: 'cham-2-20991021-win', side: 'no' }])
+    expect(parseParlayId('q-parlay-1_y')).toBeNull()
     expect(parlayOutcome(legs, ['yes', null])).toBeNull()
     expect(parlayOutcome(legs, ['yes', 'yes'])).toBe('no')
     expect(parlayOutcome(legs, ['yes', 'no'])).toBe('yes')

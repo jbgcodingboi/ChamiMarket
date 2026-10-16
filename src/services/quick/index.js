@@ -1,5 +1,5 @@
 /**
- * Builds the Quick listing (crypto, local weather, stocks, daily parlays) and
+ * Builds the Quick listing (crypto, local weather, stocks) and
  * settles held Quick markets and tonight's pro games. Every source is
  * independent: one failing never blocks the others.
  */
@@ -8,7 +8,7 @@ import { fetchJson } from '../http.js'
 import { isQuickId } from './common.js'
 import { buildCoinMarkets, COINS, cryptoOutcome, fetchCandles, fetchCoinData, parseCryptoId } from './crypto.js'
 import { espnOutcome, fetchGamesFor, isEspnSettleable } from './espn.js'
-import { buildParlays, parseParlayId } from './parlays.js'
+import { parseParlayId } from './parlays.js'
 import { buildStockMarkets, parseStockId, stockOutcome } from './stocks.js'
 import { buildWeatherMarkets, fetchClimateReports, fetchForecast, parseWeatherId, STATIONS, weatherOutcome } from './weather.js'
 
@@ -39,11 +39,10 @@ async function fetchQuickData() {
 const settled = (p) => (p.status === 'fulfilled' ? p.value : null)
 
 /**
- * listing: the current non-Quick markets (for parlays and pro games).
- * held: market ids the active account holds, with parlay legs expanded.
+ * held: market ids the active account holds, with the legs of older parlays expanded.
  * lookup: id -> market (for held markets no longer listed).
  */
-export async function loadQuick({ now, listing, held, lookup }) {
+export async function loadQuick({ now, held, lookup }) {
   const [coinData, forecasts, quickData] = await Promise.all([
     Promise.allSettled(COINS.map((c) => fetchCoinData(c, now))),
     Promise.allSettled(STATIONS.map((s) => fetchForecast(s))),
@@ -54,7 +53,6 @@ export async function loadQuick({ now, listing, held, lookup }) {
     ...COINS.flatMap((c, i) => (settled(coinData[i]) ? buildCoinMarkets(c, settled(coinData[i]), now) : [])),
     ...STATIONS.flatMap((s, i) => (settled(forecasts[i]) ? buildWeatherMarkets(s, settled(forecasts[i]), now) : [])),
     ...buildStockMarkets(now, quickData.stocks),
-    ...buildParlays(listing, now),
   ]
 
   const results = {}

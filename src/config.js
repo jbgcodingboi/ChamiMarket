@@ -20,7 +20,7 @@ export const CATEGORIES = [
   { id: 'politics', label: 'Top Politics', tagSlug: 'politics' },
   // House markets on Chaminade High School (Mineola, NY) games, built by the snapshot job.
   { id: 'chaminade', label: 'Chaminade', tagSlug: null },
-  // House-priced short markets: crypto windows, local weather, stocks and daily parlays.
+  // House-priced short markets: crypto windows, local weather and stocks.
   { id: 'quick', label: 'Quick', tagSlug: null },
 ]
 
@@ -36,3 +36,7 @@ export const MAX_HISTORY_ENTRIES = 1000
 export const MAX_SNAPSHOTS = 400
 export const MAX_KNOWN_MARKETS = 500
 export const SNAPSHOT_INTERVAL_MS = 5 * 60 * 1000
+
+/** Bump when the Terms of Use change, so everyone is asked to agree again. */
+export const TERMS_VERSION = '2026-10-16'
+export const TERMS_EFFECTIVE = 'October 16, 2026'

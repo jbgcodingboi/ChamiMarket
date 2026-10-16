@@ -1,4 +1,5 @@
 import { useId, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { createRecoveryCode, resetPassword } from '../services/backend/api.js'
 import { BACKEND_ENABLED } from '../services/backend/config.js'
 import { useAccountStore } from '../store/accountStore.js'
@@ -247,6 +248,15 @@ function AuthForm({ mode, onModeChange, message, onSuccess }) {
       <button type="submit" disabled={busy} className="btn btn-primary w-full py-2.5">
         {busy ? 'Please wait…' : signup ? 'Create account' : 'Log in'}
       </button>
+      {signup && (
+        <p className="text-center text-xs text-subtle">
+          By creating an account you agree to the{' '}
+          <Link to="/terms" onClick={() => useUiStore.getState().closeAuth()} className="text-primary-300 underline">
+            Terms of Use
+          </Link>
+          .
+        </p>
+      )}
       {BACKEND_ENABLED && !signup && (
         <button type="button" onClick={() => onModeChange('recover')} className="w-full text-center text-sm text-primary-300 hover:underline">
           Forgot your password?
