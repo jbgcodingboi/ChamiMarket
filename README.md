@@ -192,8 +192,9 @@ every round; Chicken Cross auto cashes out at a lane you choose. Small synthesiz
 
 They are also **provably fair**, using the scheme Stake-style games publish: each result comes from
 `HMAC-SHA256(server seed, "<client seed>:<nonce>:<round>")`, four bytes per random number. You see the SHA-256 hash
-of the server seed before betting, choose your own client seed, and the nonce counts your bets. **Change seeds**
-reveals the old server seed, and the built-in verifier recomputes any dice roll, mine layout or crash lane from it.
+of the server seed before betting, and the nonce counts your bets. The seeds are set by the server and players can't
+change them. After 100 bets the pair is retired (never while a Mines or Chicken Cross round is open), its server seed
+is revealed, and the built-in verifier recomputes any dice roll, mine layout or crash lane made with it.
 With the backend, the server seed, mine positions and crash lane never leave the server until the round or seed pair
 is finished; the database functions use the same formulas, and tests check both produce identical results.
 

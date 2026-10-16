@@ -2,7 +2,7 @@ import { createHmac } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import * as chicken from './chicken.js'
 import * as dice from './dice.js'
-import { fairFloats, isClientSeed, newClientSeed, newServerSeed, sha256Hex } from './fair.js'
+import { fairFloats, newClientSeed, newServerSeed, sha256Hex } from './fair.js'
 import * as mines from './mines.js'
 
 const SEEDS = { serverSeed: 'b'.repeat(64), clientSeed: 'chami', nonce: 7 }
@@ -22,8 +22,6 @@ describe('provably fair floats', () => {
     expect(newServerSeed()).toMatch(/^[0-9a-f]{64}$/)
     expect(newClientSeed()).toMatch(/^[0-9a-f]{16}$/)
     expect(await sha256Hex('abc')).toBe('ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad')
-    expect(isClientSeed('my seed')).toBe(false)
-    expect(isClientSeed('lucky-7')).toBe(true)
   })
 })
 

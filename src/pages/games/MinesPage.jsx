@@ -279,7 +279,7 @@ export default function MinesPage() {
               <span className="rounded-full bg-surface-2 px-3 py-1 tabular text-muted">Safe chance {(nextChance * 100).toFixed(1)}%</span>
             </div>
             <div className="flex shrink-0 gap-2">
-              <FairnessButton game="mines" locked={playing} />
+              <FairnessButton game="mines" />
               <SoundToggle />
             </div>
           </div>

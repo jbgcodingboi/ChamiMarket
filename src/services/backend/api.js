@@ -222,7 +222,6 @@ export async function subscribeActivity(onEntry) {
 // Provably fair games ------------------------------------------------------------
 
 export const fairState = () => rpc('fair_state')
-export const fairRotate = (clientSeed) => rpc('fair_rotate', { p_client_seed: clientSeed })
 export const playDice = ({ amount, target, over }) => rpc('play_dice', { p_amount: amount, p_target: target, p_over: over })
 export const minesState = () => rpc('mines_state')
 export const minesStart = ({ amount, mines }) => rpc('mines_start', { p_amount: amount, p_mines: mines })
