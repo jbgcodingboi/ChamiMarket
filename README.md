@@ -42,8 +42,11 @@ Requires Node 20.19+ (Node 22 recommended).
 - **Settlement**: automatic, from the official result. When Polymarket reports a held market closed with a
   clear winner, positions pay out on the next price refresh. Trading locks as soon as an event's end date passes.
 - **Reset**: back to $50,000 behind a confirmation modal that requires typing `RESET`.
-- **Social**: an activity feed mixing your local trades with clearly tagged simulated trades, and a leaderboard
-  of local accounts plus simulated pro traders.
+- **Social**: an activity feed mixing your local trades with clearly tagged simulated trades, and three
+  leaderboards of local accounts plus simulated pros: **Overall** (net worth), **Markets** (trading PnL this run:
+  realized plus unrealized, leaving out games) and **Games** (net game winnings this run, with rounds, amount
+  wagered, biggest win and favorite game). Markets PnL plus games net always equals the overall PnL. The selected
+  board is kept in the URL (`#/leaderboard?board=games`).
 - **Guest mode**: everything is browsable without an account; trading, the portfolio and resets need one.
 - **Games**: Roulette, Blackjack and Plinko, played with your portfolio cash (see below).
 
