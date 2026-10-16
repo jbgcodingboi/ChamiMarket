@@ -1,5 +1,7 @@
 import { create } from 'zustand'
 import { MAX_FEED_ENTRIES } from '../config.js'
+import * as backend from '../services/backend/api.js'
+import { BACKEND_ENABLED } from '../services/backend/config.js'
 import { isPlainObject, readJSON, writeJSON } from '../utils/storage.js'
 
 const KEY = 'feed'
@@ -30,10 +32,22 @@ export const useFeedStore = create((set) => ({
   sim: [],
 
   load() {
+    if (BACKEND_ENABLED) return
     set({ real: readFeed() })
   },
 
+  /** Backend mode: loads recent activity from every player and follows new rows live. */
+  async connect() {
+    const entries = await backend.recentActivity(MAX_SIM).catch(() => [])
+    set({ real: entries })
+    return backend
+      .subscribeActivity((entry) => set((s) => ({ real: [entry, ...s.real.filter((e) => e.id !== entry.id)].slice(0, MAX_FEED_ENTRIES) })))
+      .catch(() => () => {})
+  },
+
   addReal(trade) {
+    // The server records activity itself in backend mode.
+    if (BACKEND_ENABLED) return
     const entry = {
       id: trade.id,
       ts: trade.ts,

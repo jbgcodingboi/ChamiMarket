@@ -10,16 +10,26 @@ import { useAccountStore } from './accountStore.js'
  */
 const MAX_HISTORY = 200
 
-const EMPTY = Object.freeze({ history: [], stats: {}, pending: [], run: 0, runNet: 0, runRounds: 0 })
+const EMPTY = Object.freeze({ history: [], stats: {}, pending: [], run: 0, runNet: 0, runRounds: 0, runWagered: 0, runBest: 0 })
 
 const isGames = (g) => isPlainObject(g) && Array.isArray(g.history) && isPlainObject(g.stats) && Array.isArray(g.pending)
 
 export const gamesOf = (portfolio) => (isGames(portfolio?.games) ? portfolio.games : EMPTY)
 
-/** Net and rounds from games in the portfolio's current run. */
+const NO_RUN = Object.freeze({ net: 0, rounds: 0, wagered: 0, best: 0 })
+
+/** Net, rounds, amount wagered and biggest single win from games in the portfolio's current run. */
 export function runGames(portfolio) {
   const g = gamesOf(portfolio)
-  return g.run === portfolio?.run ? { net: g.runNet, rounds: g.runRounds } : { net: 0, rounds: 0 }
+  if (g.run !== portfolio?.run) return NO_RUN
+  return { net: g.runNet ?? 0, rounds: g.runRounds ?? 0, wagered: g.runWagered ?? 0, best: g.runBest ?? 0 }
+}
+
+/** The game with the most rounds played, or null. */
+export function favoriteGame(portfolio) {
+  const entries = Object.entries(gamesOf(portfolio).stats)
+  if (!entries.length) return null
+  return entries.reduce((a, b) => (b[1].rounds > a[1].rounds ? b : a))[0]
 }
 
 export const useChips = () => useAccountStore((s) => s.portfolio?.cash ?? 0)
@@ -53,6 +63,8 @@ function record(portfolio, { game, staked, returned, detail }) {
     run: portfolio.run,
     runNet: roundMoney((sameRun ? g.runNet : 0) + net),
     runRounds: (sameRun ? g.runRounds : 0) + 1,
+    runWagered: roundMoney((sameRun ? (g.runWagered ?? 0) : 0) + staked),
+    runBest: Math.max(sameRun ? (g.runBest ?? 0) : 0, net),
   }
   return { portfolio: { ...portfolio, cash: roundMoney(portfolio.cash + returned), games }, entry }
 }
@@ -105,10 +117,31 @@ export function finish(id) {
   }
   const { portfolio, entry } = record(rest, bet)
   commit(portfolio)
+  adoptWhenIdle()
   return entry
 }
 
 /** Pays out every held round (for one game, or all). */
 export function flush(game) {
   for (const b of gamesOf(current()).pending) if (!game || b.game === game) finish(b.id)
+}
+
+/*
+ * Backend mode: the server has already settled the round, but the screen
+ * still animates it with place()/finish() on the in-memory portfolio. The
+ * server's portfolio is held here and replaces the animated one as soon as
+ * nothing is left in flight, so the final numbers are always the server's.
+ */
+let serverPortfolio = null
+
+export function holdServerPortfolio(raw) {
+  serverPortfolio = raw
+  adoptWhenIdle()
+}
+
+function adoptWhenIdle() {
+  if (serverPortfolio && !gamesOf(current()).pending.length) {
+    useAccountStore.getState().adoptRemote(serverPortfolio)
+    serverPortfolio = null
+  }
 }

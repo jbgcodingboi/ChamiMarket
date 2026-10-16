@@ -21,7 +21,7 @@ function Item({ e }) {
 
 /** Mobile replacement for the activity sidebar: a slow scrolling ticker. */
 export default function TradeTicker() {
-  const entries = useFeedEntries(12)
+  const entries = useFeedEntries(24).filter((e) => e.action !== 'game').slice(0, 12)
   if (!entries.length) return null
   return (
     <section className="card overflow-hidden py-2" aria-label="Recent trades">

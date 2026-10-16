@@ -11,9 +11,12 @@
     "test:watch": "vitest",
     "lint": "oxlint",
     "check": "npm run lint && npm run test && npm run build",
-    "snapshot": "node scripts/build-snapshot.mjs"
+    "snapshot": "node scripts/build-snapshot.mjs",
+    "test:db": "bash scripts/test-db.sh",
+    "sync": "node scripts/sync-backend.mjs"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.118.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-router-dom": "^7.18.4",

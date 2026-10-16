@@ -4,6 +4,7 @@ import AppEffects from './AppEffects.jsx'
 import AuthModal from './components/AuthModal.jsx'
 import Footer from './components/layout/Footer.jsx'
 import Header from './components/layout/Header.jsx'
+import RecoveryCodeModal from './components/RecoveryCodeModal.jsx'
 import ResetBalanceModal from './components/ResetBalanceModal.jsx'
 import ErrorBoundary from './components/ui/ErrorBoundary.jsx'
 import { PageSkeleton } from './components/ui/Skeleton.jsx'
@@ -18,6 +19,9 @@ const GamesPage = lazy(() => import('./pages/games/GamesPage.jsx'))
 const RoulettePage = lazy(() => import('./pages/games/RoulettePage.jsx'))
 const BlackjackPage = lazy(() => import('./pages/games/BlackjackPage.jsx'))
 const PlinkoPage = lazy(() => import('./pages/games/PlinkoPage.jsx'))
+const DicePage = lazy(() => import('./pages/games/DicePage.jsx'))
+const MinesPage = lazy(() => import('./pages/games/MinesPage.jsx'))
+const ChickenPage = lazy(() => import('./pages/games/ChickenPage.jsx'))
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage.jsx'))
 
 function AppRoutes() {
@@ -34,6 +38,9 @@ function AppRoutes() {
           <Route path="/games/roulette" element={<RoulettePage />} />
           <Route path="/games/blackjack" element={<BlackjackPage />} />
           <Route path="/games/plinko" element={<PlinkoPage />} />
+          <Route path="/games/dice" element={<DicePage />} />
+          <Route path="/games/mines" element={<MinesPage />} />
+          <Route path="/games/chicken" element={<ChickenPage />} />
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </Suspense>
@@ -62,6 +69,7 @@ export default function App() {
       </div>
       <AuthModal />
       <ResetBalanceModal />
+      <RecoveryCodeModal />
       <Toaster />
     </HashRouter>
   )

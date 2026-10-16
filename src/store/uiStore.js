@@ -6,6 +6,8 @@ export const useUiStore = create((set) => ({
   sort: 'volume',
   auth: { open: false, mode: 'login', message: '' },
   resetOpen: false,
+  // Backend mode: a freshly issued recovery code to show once ({ code, reason }), or null.
+  recovery: null,
   feedCollapsed: false,
   endingSoon: false,
 
@@ -15,6 +17,7 @@ export const useUiStore = create((set) => ({
   openAuth: (mode = 'login', message = '') => set({ auth: { open: true, mode, message } }),
   closeAuth: () => set((s) => ({ auth: { ...s.auth, open: false } })),
   setResetOpen: (resetOpen) => set({ resetOpen }),
+  showRecovery: (code, reason) => set({ recovery: code ? { code, reason } : null }),
   toggleFeed: () => set((s) => ({ feedCollapsed: !s.feedCollapsed })),
   toggleEndingSoon: () => set((s) => ({ endingSoon: !s.endingSoon })),
 }))

@@ -16,13 +16,18 @@ function ResetForm({ onCancel, onDone }) {
   const id = useId()
   const armed = text.trim().toUpperCase() === 'RESET'
 
-  const confirm = (e) => {
+  const confirm = async (e) => {
     e.preventDefault()
     if (!armed || done.current) return
     done.current = true
-    resetBalance()
-    toast({ tone: 'success', title: 'Balance reset', description: `Your cash is now ${formatCurrency(RESET_CASH)}.` })
-    onDone()
+    try {
+      await resetBalance()
+      toast({ tone: 'success', title: 'Balance reset', description: `Your cash is now ${formatCurrency(RESET_CASH)}.` })
+      onDone()
+    } catch (err) {
+      done.current = false
+      toast({ tone: 'error', title: 'Reset failed', description: err.message })
+    }
   }
 
   return (

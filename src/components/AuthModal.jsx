@@ -1,5 +1,8 @@
 import { useId, useRef, useState } from 'react'
+import { createRecoveryCode, resetPassword } from '../services/backend/api.js'
+import { BACKEND_ENABLED } from '../services/backend/config.js'
 import { useAccountStore } from '../store/accountStore.js'
+import { validatePassword } from '../utils/validation.js'
 import { toast } from '../store/toastStore.js'
 import { useUiStore } from '../store/uiStore.js'
 import { formatSignedCurrency } from '../utils/format.js'
@@ -44,6 +47,87 @@ function PasswordField({ id, label, value, onChange, error, autoComplete }) {
   )
 }
 
+/** Backend mode: sets a new password with a recovery code, then logs in. */
+function RecoverForm({ onBack, onSuccess }) {
+  const logIn = useAccountStore((s) => s.logIn)
+  const [identifier, setIdentifier] = useState('')
+  const [code, setCode] = useState('')
+  const [password, setPassword] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [errors, setErrors] = useState({})
+  const [busy, setBusy] = useState(false)
+  const ids = useId()
+
+  const submit = async (e) => {
+    e.preventDefault()
+    if (busy) return
+    const pwError = validatePassword(password) ?? (password.length > 72 ? 'Password must be 72 characters or fewer.' : null)
+    const next = {
+      ...(!identifier.trim() && { identifier: 'Enter your username or email.' }),
+      ...(code.replace(/[^A-Za-z0-9]/g, '').length !== 12 && { code: 'Recovery codes have 12 letters and numbers.' }),
+      ...(pwError && { password: pwError }),
+      ...(password !== confirm && !pwError && { confirm: 'Passwords do not match.' }),
+    }
+    setErrors(next)
+    if (Object.keys(next).length) return
+    setBusy(true)
+    try {
+      const fresh = await resetPassword({ identifier, code, password })
+      await logIn({ identifier, password })
+      toast({ tone: 'success', title: 'Password changed', description: 'You are logged in with your new password.' })
+      useUiStore.getState().showRecovery(fresh, 'reset')
+      onSuccess()
+    } catch (err) {
+      setErrors({ [err.field === 'password' ? 'password' : 'form']: err.message })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <form onSubmit={submit} noValidate className="space-y-4">
+      <p className="text-sm text-muted">Enter the recovery code you saved when you signed up, then pick a new password.</p>
+      <div>
+        <label htmlFor={`${ids}-id`} className="mb-1.5 block text-sm font-medium">
+          Username or email
+        </label>
+        <input id={`${ids}-id`} value={identifier} onChange={(e) => setIdentifier(e.target.value)} autoComplete="username" autoCapitalize="none" spellCheck="false" aria-invalid={Boolean(errors.identifier)} className="input" />
+        {errors.identifier && <p className="mt-1.5 text-sm text-no">{errors.identifier}</p>}
+      </div>
+      <div>
+        <label htmlFor={`${ids}-code`} className="mb-1.5 block text-sm font-medium">
+          Recovery code
+        </label>
+        <input
+          id={`${ids}-code`}
+          value={code}
+          onChange={(e) => setCode(e.target.value.toUpperCase())}
+          placeholder="XXXX-XXXX-XXXX"
+          autoComplete="one-time-code"
+          autoCapitalize="characters"
+          spellCheck="false"
+          aria-invalid={Boolean(errors.code)}
+          className="input font-mono tracking-widest"
+        />
+        {errors.code && <p className="mt-1.5 text-sm text-no">{errors.code}</p>}
+      </div>
+      <PasswordField id={`${ids}-pw`} label="New password" value={password} onChange={setPassword} error={errors.password} autoComplete="new-password" />
+      <PasswordField id={`${ids}-confirm`} label="Confirm new password" value={confirm} onChange={setConfirm} error={errors.confirm} autoComplete="new-password" />
+      {errors.form && (
+        <p className="text-sm text-no" role="alert">
+          {errors.form}
+        </p>
+      )}
+      <button type="submit" disabled={busy} className="btn btn-primary w-full py-2.5">
+        {busy ? 'Please wait…' : 'Set new password'}
+      </button>
+      <button type="button" onClick={onBack} className="w-full text-center text-sm text-muted hover:text-fg">
+        Back to log in
+      </button>
+    </form>
+  )
+}
+
 function AuthForm({ mode, onModeChange, message, onSuccess }) {
   const signUp = useAccountStore((s) => s.signUp)
   const logIn = useAccountStore((s) => s.logIn)
@@ -66,6 +150,10 @@ function AuthForm({ mode, onModeChange, message, onSuccess }) {
       if (signup) {
         const user = await signUp({ identifier, password, confirm })
         toast({ tone: 'success', title: `Welcome, ${user.username}`, description: 'You have $100,000.00 in play money to trade.' })
+        if (BACKEND_ENABLED) {
+          const code = await createRecoveryCode().catch(() => null)
+          useUiStore.getState().showRecovery(code, 'signup')
+        }
       } else {
         const { user, settled } = await logIn({ identifier, password })
         toast({ tone: 'success', title: `Welcome back, ${user.username}` })
@@ -159,9 +247,15 @@ function AuthForm({ mode, onModeChange, message, onSuccess }) {
       <button type="submit" disabled={busy} className="btn btn-primary w-full py-2.5">
         {busy ? 'Please wait…' : signup ? 'Create account' : 'Log in'}
       </button>
+      {BACKEND_ENABLED && !signup && (
+        <button type="button" onClick={() => onModeChange('recover')} className="w-full text-center text-sm text-primary-300 hover:underline">
+          Forgot your password?
+        </button>
+      )}
       <p className="text-xs leading-relaxed text-subtle">
-        Accounts live only in this browser. Passwords are salted and hashed before saving, but this demo login
-        is not meant to protect anything of value. New accounts get $100,000.00 in play money.
+        {BACKEND_ENABLED
+          ? 'Your account works on any device. No email or confirmation link is needed; you get a recovery code at sign-up in case you forget your password. New accounts get $100,000.00 in play money.'
+          : 'Accounts live only in this browser. Passwords are salted and hashed before saving, but this demo login is not meant to protect anything of value. New accounts get $100,000.00 in play money.'}
       </p>
     </form>
   )
@@ -172,14 +266,23 @@ export default function AuthModal() {
   const openAuth = useUiStore((s) => s.openAuth)
   const close = useUiStore((s) => s.closeAuth)
   return (
-    <Modal open={auth.open} onClose={close} title={auth.mode === 'signup' ? 'Create your paper account' : 'Log in to Chami Market'} size="sm">
-      <AuthForm
-        key={auth.open ? 'open' : 'closed'}
-        mode={auth.mode}
-        onModeChange={(m) => openAuth(m, auth.message)}
-        message={auth.message}
-        onSuccess={close}
-      />
+    <Modal
+      open={auth.open}
+      onClose={close}
+      title={auth.mode === 'signup' ? 'Create your paper account' : auth.mode === 'recover' ? 'Reset your password' : 'Log in to Chami Market'}
+      size="sm"
+    >
+      {auth.mode === 'recover' ? (
+        <RecoverForm key={auth.open ? 'open' : 'closed'} onBack={() => openAuth('login')} onSuccess={close} />
+      ) : (
+        <AuthForm
+          key={auth.open ? 'open' : 'closed'}
+          mode={auth.mode}
+          onModeChange={(m) => openAuth(m, auth.message)}
+          message={auth.message}
+          onSuccess={close}
+        />
+      )}
     </Modal>
   )
 }

@@ -6,6 +6,8 @@ import { parlayOutcome } from './services/quick/parlays.js'
 import { parseParlayId } from './services/quick/index.js'
 import { isMockId } from './services/mockData.js'
 import { generateSimTrade } from './services/mockTraders.js'
+import * as backend from './services/backend/api.js'
+import { BACKEND_ENABLED } from './services/backend/config.js'
 import { portfolioKey, useAccountStore } from './store/accountStore.js'
 import { useFeedStore } from './store/feedStore.js'
 import { flush as flushGames } from './store/gameStore.js'
@@ -90,6 +92,38 @@ function officialResult(id) {
   return null
 }
 
+/**
+ * Backend mode: results and payouts happen on the server. Each refresh pulls
+ * the latest results, asks the server to check held Polymarket markets that
+ * have ended, then re-reads the portfolio to announce any payouts.
+ */
+const lastCheck = new Map()
+let backendBusy = false
+async function backendTick() {
+  if (backendBusy) return
+  backendBusy = true
+  try {
+    const ids = heldMarketIds()
+    const resolutions = await backend.serverResolutions({ ids })
+    useResolutionStore.getState().replace(resolutions)
+    const account = useAccountStore.getState()
+    if (!account.user) return
+    const now = Date.now()
+    const due = ids
+      .filter((id) => /^\d+$/.test(id) && !own(resolutions, id) && hasEnded(getMarket(id) ?? {}) && now - (lastCheck.get(id) ?? 0) > 120000)
+      .slice(0, 3)
+    for (const id of due) {
+      lastCheck.set(id, now)
+      await backend.checkMarket(id).catch(() => false)
+    }
+    notifySettled(await account.refreshRemote())
+  } catch {
+    // Try again on the next refresh.
+  } finally {
+    backendBusy = false
+  }
+}
+
 function addSimTrade(ts) {
   const entry = generateSimTrade(listing(), ts)
   if (!entry) return
@@ -109,6 +143,12 @@ export default function AppEffects() {
   useEffect(() => {
     if (booted) return
     booted = true
+    if (BACKEND_ENABLED) {
+      useMarketStore.getState().init()
+      useAccountStore.getState().init()
+      refreshMarkets()
+      return
+    }
     useResolutionStore.getState().load()
     useFeedStore.getState().load()
     useMarketStore.getState().init()
@@ -116,14 +156,29 @@ export default function AppEffects() {
     refreshMarkets()
   }, [])
 
+  // Backend mode: the live feed, and sign-outs or sign-ins from other tabs.
+  useEffect(() => {
+    if (!BACKEND_ENABLED) return undefined
+    const stops = [useFeedStore.getState().connect()]
+    stops.push(
+      backend.onAuthChange((event, user) => {
+        const account = useAccountStore.getState()
+        if (event === 'SIGNED_OUT') useAccountStore.setState({ user: null, portfolio: null })
+        else if (event === 'SIGNED_IN' && user && account.user?.id !== user.id) account.loadRemote(user).catch(() => {})
+      }),
+    )
+    return () => stops.forEach((p) => Promise.resolve(p).then((stop) => stop?.()))
+  }, [])
+
   usePolling(refreshMarkets, POLL_INTERVAL_MS)
 
   useEffect(() => {
+    if (BACKEND_ENABLED) return undefined
     const unsubs = [
       subscribeToKey('feed', () => useFeedStore.getState().load()),
       subscribeToKey('resolutions', () => {
         useResolutionStore.getState().load()
-        notifySettled(useAccountStore.getState().applyPendingResolutions())
+        Promise.resolve(useAccountStore.getState().applyPendingResolutions()).then(notifySettled)
       }),
       subscribeToKey('session', () => {
         useAccountStore.getState().logOut()
@@ -135,16 +190,20 @@ export default function AppEffects() {
 
   // Pays out game rounds that were still animating when a tab closed.
   useEffect(() => {
-    if (userId) flushGames()
+    if (userId && !BACKEND_ENABLED) flushGames()
   }, [userId])
 
   useEffect(() => {
-    if (!userId) return undefined
+    if (!userId || BACKEND_ENABLED) return undefined
     return subscribeToKey(portfolioKey(userId), () => useAccountStore.getState().syncFromStorage())
   }, [userId])
 
   useEffect(() => {
     if (!tick) return
+    if (BACKEND_ENABLED) {
+      backendTick()
+      return
+    }
     const markets = listing()
     useMockTraderStore.getState().sync(markets)
     if (!useFeedStore.getState().sim.length) {
@@ -165,6 +224,7 @@ export default function AppEffects() {
   }, [tick])
 
   useEffect(() => {
+    if (BACKEND_ENABLED) return undefined
     let timer
     const loop = () => {
       timer = setTimeout(

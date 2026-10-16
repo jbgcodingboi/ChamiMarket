@@ -1,12 +1,16 @@
-import { useMemo } from 'react'
-import { PRO_STARTING_EQUITY, PRO_TRADERS } from '../services/mockTraders.js'
+import { useEffect, useMemo, useState } from 'react'
+import * as backend from '../services/backend/api.js'
+import { BACKEND_ENABLED } from '../services/backend/config.js'
+import { useFeedStore } from '../store/feedStore.js'
+import { PRO_STARTING_EQUITY, PRO_TRADERS, simGameStats } from '../services/mockTraders.js'
 import { readAccounts, readPortfolio, useAccountStore } from '../store/accountStore.js'
 import { getMarket, useMarketStore } from '../store/marketStore.js'
 import { useMockTraderStore } from '../store/mockTraderStore.js'
 import { getOutcomePrice } from '../store/prices.js'
+import { favoriteGame, runGames } from '../store/gameStore.js'
 import { useResolutionStore } from '../store/resolutionStore.js'
 import { roundMoney } from '../utils/math.js'
-import { computeNetWorth } from '../utils/portfolio.js'
+import { computeMetrics } from '../utils/portfolio.js'
 
 function proTraderEquity(trader, holdings, drift) {
   let cents = Math.round(trader.equity * 100)
@@ -18,8 +22,13 @@ function proTraderEquity(trader, holdings, drift) {
   return roundMoney((cents / 100) * drift)
 }
 
-/** Ranked rows for every local account plus the simulated pro traders. */
-export function useLeaderboard() {
+/**
+ * One row per local account plus the simulated pro traders, with overall,
+ * market and game figures for the current run. Overall PnL is net worth
+ * against the run's starting cash; markets PnL is that minus game results,
+ * so the two boards always add up to the overall one. Rows come unsorted.
+ */
+function useLocalLeaderboard() {
   const tick = useMarketStore((s) => s.tick)
   const resolutions = useResolutionStore((s) => s.resolutions)
   const portfolio = useAccountStore((s) => s.portfolio)
@@ -31,30 +40,89 @@ export function useLeaderboard() {
     for (const account of readAccounts()) {
       const p = readPortfolio(account.id)
       if (!p) continue
-      const netWorth = computeNetWorth(p.cash, p.positions, getOutcomePrice)
+      const m = computeMetrics(p, getOutcomePrice)
+      const games = runGames(p)
       rows.push({
         id: account.id,
         name: account.username,
-        netWorth,
-        pnl: roundMoney(netWorth - p.runStartCash),
-        trades: p.tradeCount,
         sim: false,
+        netWorth: m.netWorth,
+        pnl: m.totalPnl,
+        pnlPct: m.totalPnlPct,
+        marketPnl: roundMoney(m.totalPnl - games.net),
+        realized: m.realizedPnl,
+        unrealized: m.unrealizedPnl,
+        trades: p.tradeCount,
+        winRate: m.winRate,
+        openPositions: m.openPositions,
+        games: { ...games, favorite: favoriteGame(p) },
       })
     }
     for (const trader of PRO_TRADERS) {
       const netWorth = proTraderEquity(trader, holdings[trader.name] ?? [], drift[trader.name] ?? 1)
+      const pnl = roundMoney(netWorth - PRO_STARTING_EQUITY)
+      const games = simGameStats(trader.name)
       rows.push({
         id: `pro:${trader.name}`,
         name: trader.name,
-        netWorth,
-        pnl: roundMoney(netWorth - PRO_STARTING_EQUITY),
-        trades: trader.trades + (simTrades[trader.name] ?? 0),
         sim: true,
+        netWorth,
+        pnl,
+        pnlPct: (pnl / PRO_STARTING_EQUITY) * 100,
+        marketPnl: roundMoney(pnl - games.net),
+        realized: null,
+        unrealized: null,
+        trades: trader.trades + (simTrades[trader.name] ?? 0),
+        winRate: null,
+        openPositions: (holdings[trader.name] ?? []).length,
+        games,
       })
     }
-    rows.sort((a, b) => b.netWorth - a.netWorth)
-    return rows.map((r, i) => ({ ...r, rank: i + 1 }))
+    return rows
     // tick, resolutions, portfolio and accountsVersion invalidate storage-backed values.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tick, resolutions, portfolio, accountsVersion, holdings, drift, simTrades])
 }
+
+const num = (v) => (v === null || v === undefined ? null : Number(v))
+
+/** Backend mode: every player's standings from the server, refreshed every 30 seconds and on new activity. */
+function useServerLeaderboard() {
+  const [rows, setRows] = useState([])
+  const latest = useFeedStore((s) => s.real[0]?.id)
+  const portfolio = useAccountStore((s) => s.portfolio)
+  const [tick, setTick] = useState(0)
+  useEffect(() => {
+    const t = setInterval(() => setTick((n) => n + 1), 30000)
+    return () => clearInterval(t)
+  }, [])
+  useEffect(() => {
+    let live = true
+    backend
+      .leaderboard()
+      .then((list) => {
+        if (!live) return
+        setRows(
+          (list ?? []).map((r) => ({
+            ...r,
+            netWorth: num(r.netWorth),
+            pnl: num(r.pnl),
+            pnlPct: num(r.pnlPct),
+            marketPnl: num(r.marketPnl),
+            realized: num(r.realized),
+            unrealized: num(r.unrealized),
+            winRate: num(r.winRate),
+            games: { ...r.games, net: num(r.games.net), wagered: num(r.games.wagered), best: num(r.games.best) },
+          })),
+        )
+      })
+      .catch(() => {})
+    return () => {
+      live = false
+    }
+  }, [latest, portfolio, tick])
+  return rows
+}
+
+/** Leaderboard rows: real players from the server in backend mode, else local accounts plus simulated pros. */
+export const useLeaderboard = BACKEND_ENABLED ? useServerLeaderboard : useLocalLeaderboard

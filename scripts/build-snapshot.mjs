@@ -14,15 +14,14 @@
  * app falls back to its other data sources.
  */
 import { mkdir, rm, writeFile } from 'node:fs/promises'
-import { buildMarkets, buildResults, CALENDAR_ENDPOINT, calendarMonths, parseCalendar } from '../src/services/chaminade.js'
 import { fetchCatalog, fetchRecentResolutions } from '../src/services/gamma.js'
-import { parseYahooChart, STOCKS } from '../src/services/quick/stocks.js'
+import { STOCKS } from '../src/services/quick/stocks.js'
+import { fetchChaminade, fetchStockCloses } from './sources.mjs'
 
 const OUT_DIR = new URL('../public/data/', import.meta.url)
 const SNAPSHOT_FILE = new URL('snapshot.json', OUT_DIR)
 const CHAMINADE_FILE = new URL('chaminade.json', OUT_DIR)
 const QUICK_FILE = new URL('quick.json', OUT_DIR)
-const USER_AGENT = 'Mozilla/5.0 (compatible; ChamiMarketSnapshot/1.0; +https://github.com/jbgcodingboi/ChamiMarket)'
 
 await mkdir(OUT_DIR, { recursive: true })
 const now = Date.now()
@@ -43,19 +42,7 @@ async function polymarket() {
 
 async function chaminade() {
   try {
-    const days = []
-    for (const month of calendarMonths(now)) {
-      const url = `${CALENDAR_ENDPOINT}?type=month&sport=0&location=all&date=${encodeURIComponent(month)}`
-      const res = await fetch(url, { headers: { Accept: 'application/json', 'User-Agent': USER_AGENT } })
-      if (!res.ok) throw new Error(`HTTP ${res.status} for ${month}`)
-      const body = await res.json()
-      if (!Array.isArray(body)) throw new Error(`malformed calendar for ${month}`)
-      days.push(...body)
-    }
-    const games = parseCalendar(days)
-    if (!games.length) throw new Error('no games in the calendar')
-    const markets = buildMarkets(games, now)
-    const results = buildResults(games, now)
+    const { games, markets, results } = await fetchChaminade(now)
     await writeFile(CHAMINADE_FILE, JSON.stringify({ version: 1, generatedAt: now, markets, results }))
     console.log(`chaminade: ${games.length} events, ${markets.length} markets, ${Object.keys(results).length} results`)
     for (const m of markets.slice(0, 12)) console.log(`  ${Math.round(m.yesPrice * 100)}%  ${m.title}`)
@@ -67,14 +54,7 @@ async function chaminade() {
 
 async function stocks() {
   try {
-    const out = {}
-    for (const s of STOCKS) {
-      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${s.symbol}?interval=1d&range=10d`
-      const res = await fetch(url, { headers: { Accept: 'application/json', 'User-Agent': USER_AGENT } })
-      if (!res.ok) throw new Error(`HTTP ${res.status} for ${s.symbol}`)
-      out[s.symbol] = parseYahooChart(await res.json(), now)
-      if (!out[s.symbol].length) throw new Error(`no closes for ${s.symbol}`)
-    }
+    const out = await fetchStockCloses(now)
     await writeFile(QUICK_FILE, JSON.stringify({ version: 1, generatedAt: now, stocks: out }))
     const last = (rows) => rows[rows.length - 1]
     console.log(`quick: ${STOCKS.map((s) => `${s.symbol} ${last(out[s.symbol]).date} ${last(out[s.symbol]).close}${last(out[s.symbol]).final ? '' : ' (intraday)'}`).join(', ')}`)
