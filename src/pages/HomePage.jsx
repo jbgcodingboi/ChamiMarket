@@ -16,6 +16,7 @@ import { useMarketStore } from '../store/marketStore.js'
 import { useResolutionStore } from '../store/resolutionStore.js'
 import { useUiStore } from '../store/uiStore.js'
 import { filterMarkets, sortMarkets } from '../utils/filters.js'
+import { own } from '../utils/safe.js'
 
 const isEndingSoon = (m, now) => {
   const left = Date.parse(m.endDate) - now
@@ -54,7 +55,7 @@ export default function HomePage() {
   }, [list, query])
   const visible = useMemo(
     () =>
-      sortMarkets(filterMarkets(list, { query, category }), sort, (id) => Boolean(resolutions[id]), {
+      sortMarkets(filterMarkets(list, { query, category }), sort, (id) => Boolean(own(resolutions, id)), {
         sportsFirst: category === 'all' && sort === 'volume',
       }),
     [list, query, category, sort, resolutions],

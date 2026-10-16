@@ -203,13 +203,36 @@ discarded (falling back to defaults) and storage falls back to memory in private
 feed and cached markets are all capped. Several accounts can share a browser with fully separate portfolios, and
 other tabs stay in sync through `storage` events.
 
-> **Demo-grade auth.** Passwords are salted and hashed with PBKDF2-SHA-256 via the Web Crypto API and plaintext
+> **Demo-grade auth.** Passwords are salted and hashed with PBKDF2-SHA-256 (600,000 iterations, per OWASP; older
+> hashes are upgraded on the next login) via the Web Crypto API and plaintext
 > is never stored, but a client-side account system is not secure: anyone with access to the browser can read or
 > edit the data. Don't reuse a real password. Web Crypto needs HTTPS or `localhost`.
 
 When a market resolves (from the live API or the snapshot), the active account is settled on the next price
 refresh. Other local accounts are settled automatically the next time they log in. Once an event's end date
 passes, buying and selling stop until the result is in.
+
+## Security
+
+There is no backend, no secret and no API key; every upstream API is public. Hardening in place:
+
+- **Content-Security-Policy**: `security.config.js` holds the policy. The build adds it as a `<meta>` tag (the
+  only option on GitHub Pages), and `vercel.json` and `netlify.toml` send it as a header together with
+  `frame-ancestors 'none'`, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`
+  and `Cross-Origin-Opener-Policy`. Scripts and styles are same-origin only, `connect-src` lists the five APIs the
+  browser calls, and a test fails if the app fetches from a host the policy doesn't list or the host configs drift.
+  The dev server runs without the policy because hot reload needs inline scripts.
+- **Untrusted data**: market ids from the API, the snapshot, a URL or `localStorage` are checked before use as
+  dictionary keys (`__proto__`, `constructor` and `prototype` are rejected) and looked up as own properties only.
+  Stored markets are re-validated on load, including that images are `https` URLs. Nothing renders HTML from data.
+- **CI**: GitHub Actions are pinned to commit SHAs, the workflow has no default permissions (only the deploy job
+  gets `pages` and `id-token`), installs run with `--ignore-scripts`, and `npm audit` gates the build. Dependabot
+  (`.github/dependabot.yml`) opens weekly updates for npm packages and actions. Scheduled runs only rebuild the
+  latest reviewed commit on `main` with fresh data.
+
+What can't be fixed client-side: anyone with access to the browser can read or edit `localStorage`, including
+balances and the session. That's acceptable for a single-browser play-money demo, but a shared leaderboard or
+anything with real stakes would need a server.
 
 ## Deploy
 
@@ -233,7 +256,7 @@ src/
   services/     Gamma and CLOB clients, parsing, mock data, synthetic generators, simulated traders
   games/        Roulette, Blackjack and Plinko engines, physics and RNG (with Vitest tests)
   store/        Zustand stores: markets, accounts and portfolios, resolutions, feed, games, toasts, UI
-  utils/        Pure financial math, formatters, storage, validation, hashing (with Vitest tests)
+  utils/        Pure financial math, formatters, storage, validation, hashing, safe keys (with Vitest tests)
   hooks/        Polling, debounce, price flash, portfolio metrics, leaderboard
 ```
 

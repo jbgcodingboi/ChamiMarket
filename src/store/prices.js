@@ -1,4 +1,5 @@
 import { getMarket } from './marketStore.js'
+import { own } from '../utils/safe.js'
 import { useResolutionStore } from './resolutionStore.js'
 
 /**
@@ -7,7 +8,7 @@ import { useResolutionStore } from './resolutionStore.js'
  * null so positions are valued at cost.
  */
 export function getOutcomePrice(marketId, side) {
-  const res = useResolutionStore.getState().resolutions[marketId]
+  const res = own(useResolutionStore.getState().resolutions, marketId)
   if (res?.outcome === 'void') return null
   if (res) return res.outcome === side ? 1 : 0
   const market = getMarket(marketId)

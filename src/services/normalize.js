@@ -5,6 +5,7 @@
  * a market that cannot be represented safely is dropped (null).
  */
 import { roundPrice } from '../utils/math.js'
+import { isSafeKey } from '../utils/safe.js'
 
 function parseMaybeJSON(value) {
   if (Array.isArray(value)) return value
@@ -67,7 +68,7 @@ export function normalizeGammaMarket(raw, category, { league = null } = {}) {
   if (!raw || typeof raw !== 'object') return null
   const id = typeof raw.id === 'string' || typeof raw.id === 'number' ? String(raw.id) : null
   const title = cleanText(raw.question, 300)
-  if (!id || !title) return null
+  if (!isSafeKey(id) || !title) return null
 
   const outcomes = parseMaybeJSON(raw.outcomes)
   if (!outcomes || outcomes.length !== 2 || !outcomes.every((o) => typeof o === 'string' && o.trim())) return null
