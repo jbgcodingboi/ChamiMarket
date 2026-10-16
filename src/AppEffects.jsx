@@ -1,13 +1,15 @@
 import { useEffect } from 'react'
 import { POLL_INTERVAL_MS } from './config.js'
 import { usePolling } from './hooks/usePolling.js'
+import { isMockId } from './services/mockData.js'
 import { generateSimTrade } from './services/mockTraders.js'
 import { portfolioKey, useAccountStore } from './store/accountStore.js'
 import { useFeedStore } from './store/feedStore.js'
-import { getMarket, useMarketStore } from './store/marketStore.js'
+import { getMarket, isOrphanedDemoId, useMarketStore } from './store/marketStore.js'
 import { useMockTraderStore } from './store/mockTraderStore.js'
 import { useResolutionStore } from './store/resolutionStore.js'
 import { toast } from './store/toastStore.js'
+import { hasEnded } from './utils/curation.js'
 import { formatCurrency, formatSignedCurrency } from './utils/format.js'
 import { subscribeToKey } from './utils/storage.js'
 
@@ -26,13 +28,32 @@ const refreshMarkets = () => useMarketStore.getState().refresh(heldMarketIds())
 function notifySettled(settled) {
   for (const s of settled) {
     const title = s.entries[0]?.marketTitle ?? 'A market'
+    const result = s.outcome === 'void' ? 'Voided, refunded at cost' : `Resolved ${s.outcome === 'yes' ? 'Yes' : 'No'}`
     toast({
       tone: s.realizedPnl >= 0 ? 'success' : 'info',
       title: `Settled: ${title}`,
-      description: `Resolved ${s.outcome === 'yes' ? 'Yes' : 'No'} · Payout ${formatCurrency(s.payout)} · Realized ${formatSignedCurrency(s.realizedPnl)}`,
+      description: `${result} · Payout ${formatCurrency(s.payout)} · Realized ${formatSignedCurrency(s.realizedPnl)}`,
       duration: 7000,
     })
   }
+}
+
+/**
+ * The result to settle a held market with, if one is known: from the live
+ * API (closed with a clear winner), else from the deployed snapshot. Demo
+ * markets have no real result, so once they end (or leave the bundled
+ * dataset) they are voided and refunded at cost.
+ */
+function officialResult(id) {
+  const market = getMarket(id)
+  const title = market?.title ?? ''
+  if (market?.resolvedOutcome) return { outcome: market.resolvedOutcome, source: 'api', title }
+  const fromSnapshot = useMarketStore.getState().snapshotResolutions[id]
+  if (fromSnapshot) return { outcome: fromSnapshot, source: 'snapshot', title }
+  if (isOrphanedDemoId(id) || (isMockId(id) && market && hasEnded(market))) {
+    return { outcome: 'void', source: 'demo', title }
+  }
+  return null
 }
 
 function addSimTrade(ts) {
@@ -95,11 +116,9 @@ export default function AppEffects() {
     if (!account.portfolio) return
     let resolvedAny = false
     for (const id of new Set(heldMarketIds())) {
-      const market = getMarket(id)
-      if (market?.resolvedOutcome) {
-        resolvedAny =
-          useResolutionStore.getState().resolve(id, market.resolvedOutcome, { source: 'api', title: market.title }) ||
-          resolvedAny
+      const result = officialResult(id)
+      if (result) {
+        resolvedAny = useResolutionStore.getState().resolve(id, result.outcome, result) || resolvedAny
       }
     }
     if (resolvedAny) notifySettled(account.applyPendingResolutions())

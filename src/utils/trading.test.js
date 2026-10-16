@@ -108,6 +108,16 @@ describe('settlement', () => {
     expect(res.entries.map((e) => e.type)).toEqual(['settlement', 'settlement'])
   })
 
+  it('refunds the cost basis when a market is voided', () => {
+    let p = buy(createPortfolio(0), 'yes', 1000, 0.4)
+    p = buy(p, 'no', 600, 0.6)
+    const res = settleMarket(p, { marketId: 'm1', outcome: 'void', now: 5 })
+    expect(res.payout).toBe(1600)
+    expect(res.realizedPnl).toBe(0)
+    expect(res.portfolio.cash).toBe(100000)
+    expect(res.entries[0].note).toMatch(/Voided/)
+  })
+
   it('is a no-op for a market with no position', () => {
     const p = createPortfolio(0)
     const res = settleMarket(p, { marketId: 'other', outcome: 'yes' })

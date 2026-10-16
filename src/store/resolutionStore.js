@@ -6,7 +6,7 @@ const KEY = 'resolutions'
 const isResolutions = (v) =>
   isPlainObject(v) &&
   Object.values(v).every(
-    (r) => isPlainObject(r) && (r.outcome === 'yes' || r.outcome === 'no') && Number.isFinite(r.at),
+    (r) => isPlainObject(r) && (r.outcome === 'yes' || r.outcome === 'no' || r.outcome === 'void') && Number.isFinite(r.at),
   )
 
 /**
@@ -22,7 +22,7 @@ export const useResolutionStore = create((set, get) => ({
   },
 
   /** Records a resolution once. Returns false if the market was already resolved. */
-  resolve(marketId, outcome, { source = 'test', title = '' } = {}) {
+  resolve(marketId, outcome, { source = 'api', title = '' } = {}) {
     const current = readJSON(KEY, isResolutions, {})
     if (current[marketId] || get().resolutions[marketId]) return false
     const next = { ...current, [marketId]: { outcome, at: Date.now(), source, title } }

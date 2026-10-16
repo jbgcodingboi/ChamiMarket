@@ -41,7 +41,10 @@ export default function HomePage() {
     }
   }, [list, query])
   const visible = useMemo(
-    () => sortMarkets(filterMarkets(list, { query, category }), sort, (id) => Boolean(resolutions[id])),
+    () =>
+      sortMarkets(filterMarkets(list, { query, category }), sort, (id) => Boolean(resolutions[id]), {
+        sportsFirst: category === 'all' && sort === 'volume',
+      }),
     [list, query, category, sort, resolutions],
   )
 

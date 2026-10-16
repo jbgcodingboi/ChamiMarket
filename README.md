@@ -1,10 +1,10 @@
-# RedBook Markets
+# Chami Market
 
 A paper trading prediction market. Browse live Sports and Top Politics odds, buy and sell Yes/No shares with
 **play money**, and track your PnL, net worth and rank. Everything runs in the browser: there is no backend, no
 real money, nothing to fund and nothing to cash out.
 
-> **Paper trading, play money only.** RedBook Markets is an independent demo. It is not affiliated with, endorsed
+> **Paper trading, play money only.** Chami Market is an independent demo. It is not affiliated with, endorsed
 > by or connected to Polymarket or any other prediction market or exchange. Balances have no cash value and
 > nothing here is financial advice.
 
@@ -23,21 +23,23 @@ npm run dev        # http://localhost:5173
 | `npm test`        | Vitest unit tests (financial math, parsing, storage)|
 | `npm run lint`    | oxlint                                              |
 | `npm run check`   | lint + tests + build                                |
+| `npm run snapshot`| Fetch the odds/results snapshot into `public/data/` |
 
 Requires Node 20.19+ (Node 22 recommended).
 
 ## Features
 
-- **Discovery**: Sports and Top Politics only, a debounced live search (title and rules text, case-insensitive,
-  combined with the category filter) and sorting by volume, newest or ending soon.
+- **Discovery**: Sports and Top Politics only, curated (see below), with Sports listed first in the All view; a
+  debounced live search (title and rules text, case-insensitive, combined with the category filter) and sorting
+  by volume, newest or ending soon.
 - **Market detail**: probability chart with 1D/1W/1M/All ranges, order book, rules, your position, and a sticky
   trade panel (a bottom sheet on mobile).
 - **Paper trading**: instant market orders, live preview of shares, average price, payout, profit and ROI;
   partial or full sells; volume-weighted average buy price.
 - **Portfolio**: net worth, available funds, unrealized and realized PnL, cost basis, open positions, win rate,
   resets used, an equity chart, a positions table and trade history with a closed/settled filter.
-- **Settlement**: a "Resolve market (test)" control, plus automatic settlement when the live API reports a
-  market closed with a clear winner.
+- **Settlement**: automatic, from the official result. When Polymarket reports a held market closed with a
+  clear winner, positions pay out on the next price refresh. Trading locks as soon as an event's end date passes.
 - **Reset**: back to $50,000 behind a confirmation modal that requires typing `RESET`.
 - **Social**: an activity feed mixing your local trades with clearly tagged simulated trades, and a leaderboard
   of local accounts plus simulated pro traders.
@@ -70,26 +72,55 @@ the shares you hold. Orders execute at the displayed outcome price (there is no 
 | Data                    | Source                                                                    |
 | ----------------------- | ------------------------------------------------------------------------- |
 | Category tag ids        | Gamma `GET /tags/slug/{sports,politics}`, falling back to `GET /tags`     |
-| Market list and prices  | Gamma `GET /markets?tag_id=…&active=true&closed=false&liquidity_num_min=…`, falling back to `GET /events?tag_id=…` |
+| League game feeds       | Gamma `GET /sports` for series ids, then `GET /events?series_id=…` for NFL, college football, MLB, NBA, NHL, the top 5 European soccer leagues and the Champions League |
+| Market list and prices  | Gamma `GET /events?tag_id=…&active=true&closed=false&end_date_min=…&end_date_max=…` for the Sports (2 pages) and Politics tags |
 | Held markets            | Gamma `GET /markets/{id}` (also used to detect resolved markets)          |
+| Snapshot (fallback)     | `data/snapshot.json`, written by the deploy workflow every hour           |
 | Order book              | CLOB `GET /book?token_id=…`                                               |
 | Price history           | CLOB `GET /prices-history?market={token}&interval=…&fidelity=…`           |
 
 - Tag ids are discovered at startup, not hardcoded, and cached with the market list.
-- Only active, open, binary markets with at least $1,000 liquidity and prices inside (0, 1) are listed.
+- Only active, open, binary markets with at least $1,000 liquidity are considered, at most 3 per event (highest
+  volume first, so one game's prop markets can't flood the grid). Up to 200 Sports and 60 Politics markets are
+  listed.
 - `outcomes`, `outcomePrices` and `clobTokenIds` may arrive as JSON-encoded strings; numbers may arrive as strings.
   Every field is parsed and validated in `src/services/normalize.js`; anything malformed is dropped.
-- Prices refresh every 20 seconds (order books too, on the market page). Polling stops while
+- Prices refresh every 30 seconds (order books every 20 seconds, on the market page). Polling stops while
   `document.visibilityState` is `hidden` and resumes when you come back.
 - `src/services/http.js` adds request timeouts, in-flight de-duplication, a short response memo, a per-host
   request budget, and a cooldown after HTTP 429 (honouring `Retry-After`) to stay well inside public rate limits.
 - The last good listing is cached in `localStorage` for instant startup (used if under 24 hours old).
-- **Fallback**: on timeouts, CORS or network errors, rate limits or malformed responses the app silently switches
-  to a bundled dataset (13 Sports and 12 Politics markets with synthetic order books and price history) and the
-  header shows **Offline demo data**. Demo prices drift slightly on each poll so the app still feels alive. If
-  live data was already loaded, it is kept and marked as reconnecting instead.
+- **Fallback 1, snapshot**: if the browser can't reach the API (timeouts, CORS, network policy, regional blocks,
+  rate limits, malformed responses), the app loads `data/snapshot.json` from its own origin and the header shows
+  **Delayed odds**. The deploy workflow rebuilds the site every hour with a fresh snapshot fetched server-side by
+  `scripts/build-snapshot.mjs`, including the results of markets closed in the last 30 days, so held positions
+  still settle.
+- **Fallback 2, demo data**: with no snapshot either, the app switches to a bundled dataset (24 Sports and 12
+  Politics markets with synthetic order books and price history) and shows **Offline demo data**. Season and
+  election markets use real dates and drop out once they end; "this week" games roll forward so offline mode is
+  never empty. Demo prices drift slightly on each poll. A demo market has no real result, so a position in one is
+  voided (refunded at cost) once it ends. If live data was already loaded, it is kept and marked as
+  reconnecting instead.
 - When no price history is available, the chart shows a deterministic synthetic series that ends at the current
   price and is labelled as simulated. Missing order books are replaced with a labelled simulated book.
+
+## Curation rules
+
+All of these live in `src/utils/curation.js` (with tests) and apply to live data, the snapshot and demo data alike.
+
+- **Dates**: markets whose end date has passed are hidden, as are markets ending after June 1, 2027.
+- **Odds**: markets priced below 6% or above 95% are hidden, except ceasefire, alien and political-agreement
+  markets and championship-style futures ("Will … win the 2027 Championship?"), which are listed at any price.
+- **Sports**: every sport is kept (NFL, MLB, NBA, NHL, college, tennis, UFC, golf, F1 and so on) except esports,
+  which are hidden. Soccer is limited to the Premier League, La Liga, Serie A, Bundesliga, Ligue 1, the
+  Champions League and the Ballon d'Or; MLS, other domestic leagues, cups, women's and youth competitions,
+  international qualifiers and other trophies are hidden.
+- **Politics**: tweet-count, mention, "will X say" and meme markets (including Elon Musk markets) are hidden, as
+  are foreign elections and domestic politics most Americans don't follow (Brazil, Japan, Poland and so on).
+  Israel, Iran, Russia and Ukraine, China and Taiwan, North Korea, NATO, the UK, Canada, Mexico, Venezuela, the
+  Pope and the wider Middle East are kept, as is anything that also involves the US.
+
+A held market that later falls outside these rules stays in your portfolio and still settles normally.
 
 ## Accounts and storage
 
@@ -104,8 +135,9 @@ other tabs stay in sync through `storage` events.
 > is never stored, but a client-side account system is not secure: anyone with access to the browser can read or
 > edit the data. Don't reuse a real password. Web Crypto needs HTTPS or `localhost`.
 
-When a market resolves (test control or API), the active account is settled immediately. Other local accounts
-are settled automatically the next time they log in.
+When a market resolves (from the live API or the snapshot), the active account is settled on the next price
+refresh. Other local accounts are settled automatically the next time they log in. Once an event's end date
+passes, buying and selling stop until the result is in.
 
 ## Deploy
 
@@ -138,8 +170,11 @@ src/
   runs on demo data.
 - `outcomePrices[0]` is the Yes (first outcome) price and `clobTokenIds[0]` its CLOB token. Two-outcome markets with
   other labels (for example two team names) are shown with those labels.
-- Gamma `/markets` honours `tag_id`, `active`, `closed`, `order=volume24hr` and `liquidity_num_min`; if the list
-  comes back empty or errors, `/events?tag_id=…` is used instead.
+- Gamma `/events` honours `tag_id`, `series_id`, `active`, `closed`, `order=volume24hr` and the
+  `end_date_min`/`end_date_max` filters (if the date filters are rejected the request is retried without them;
+  curation still applies client-side). Events carry `tags`, used to classify soccer leagues.
+- Gamma `/sports` returns `{ sport, series, tags }` rows with league codes such as `nfl`, `mlb`, `epl`, `lal`,
+  `sea`, `bun`, `fl1` and `ucl`. Unknown codes are simply skipped; their games still arrive via the Sports tag.
 - A closed market is treated as resolved only when one outcome is priced at 0.99 or higher and the other at
   0.01 or lower.
 
@@ -150,4 +185,6 @@ src/
 - Leaderboard pro traders are simulated portfolios, tagged as such.
 - Markets that drop out of the live listing keep their last known price unless you hold them (held markets are
   refreshed individually).
-- Local resolutions are permanent for this browser, even if the real market later resolves differently.
+- Polymarket markets that resolve 50/50 (no clear winner) are not settled automatically.
+- The keyword lists behind the curation rules can't catch everything; they are easy to extend in
+  `src/utils/curation.js`.

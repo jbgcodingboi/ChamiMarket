@@ -25,6 +25,9 @@ describe('sortMarkets', () => {
     expect(sortMarkets(markets, 'newest').map((m) => m.id)).toEqual(['2', '1', '3'])
     expect(sortMarkets(markets, 'ending').map((m) => m.id)).toEqual(['2', '1', '3'])
   })
+  it('can list sports ahead of politics', () => {
+    expect(sortMarkets(markets, 'volume', undefined, { sportsFirst: true }).map((m) => m.id)).toEqual(['1', '2', '3'])
+  })
   it('puts resolved markets last', () => {
     expect(sortMarkets(markets, 'volume', (id) => id === '2').map((m) => m.id)).toEqual(['1', '3', '2'])
   })
