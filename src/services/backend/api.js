@@ -173,9 +173,12 @@ const toFeedEntry = (r) => ({
   sim: false,
 })
 
-export async function recentActivity(limit = 100) {
+/** Newest activity rows: market trades for kind 'markets', game results for 'games'. */
+export async function recentActivity(limit = 100, kind = 'markets') {
   const sb = await client()
-  const { data, error } = await sb.from('activity').select('*').order('created_at', { ascending: false }).limit(limit)
+  const query = sb.from('activity').select('*')
+  const filtered = kind === 'games' ? query.eq('kind', 'game') : query.in('kind', ['buy', 'sell'])
+  const { data, error } = await filtered.order('created_at', { ascending: false }).limit(limit)
   if (error) throw new BackendError(friendly(error))
   return (data ?? []).map(toFeedEntry)
 }

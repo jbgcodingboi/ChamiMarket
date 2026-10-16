@@ -256,7 +256,9 @@ browser. Connecting a free [Supabase](https://supabase.com) project turns Chami 
   server's own data (Polymarket trades also check the live API), rejects a trade if the price the player saw is
   more than 3¢ off, and rolls game outcomes with a cryptographic RNG on the server. Blackjack's shoe and the
   dealer's hole card never leave the server. Calls are rate limited per player.
-- Simulated pro traders and simulated feed entries are turned off, since real players fill those spots.
+- While the site is new, simulated players (tagged SIM) top the leaderboard up to 15 rows, and one drops off for
+  every real player who joins. A few SIM market trades also trickle into the live feed when real trading is quiet.
+  Game results from every player get their own **Live games** feed on the Games lobby, with no simulated entries.
 
 The app picks the mode at build time: with `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` set it uses the
 backend, otherwise it stays in local mode. Accounts made in local mode don't move over; players sign up again.
@@ -344,7 +346,7 @@ src/
   components/   UI (layout, market, portfolio, social, ui primitives, modals)
   pages/        Route-level pages, lazy loaded
   services/     Gamma and CLOB clients, parsing, mock data, synthetic generators, simulated traders
-  games/        Roulette, Blackjack and Plinko engines, physics and RNG (with Vitest tests)
+  games/        Game engines, provably fair RNG, physics and sounds (with Vitest tests)
   store/        Zustand stores: markets, accounts and portfolios, resolutions, feed, games, toasts, UI
   utils/        Pure financial math, formatters, storage, validation, hashing, safe keys (with Vitest tests)
   hooks/        Polling, debounce, price flash, portfolio metrics, leaderboard
@@ -373,7 +375,8 @@ scripts/        Snapshot job, backend sync job and the shared server-side data s
 
 - Market orders fill entirely at the displayed price; there is no order book matching, slippage or fees.
 - In local mode the activity feed only shows real trades made in this browser, alongside simulated ones, and the
-  leaderboard's pro traders are simulated portfolios, tagged as such. The backend replaces both with real players.
+  leaderboard's pro traders are simulated portfolios, tagged as such. With the backend, real players replace them
+  as they join.
 - With the backend, a new Quick market can take up to one sync run to become tradable, and the hourly crypto
   markets pause trading if their synced price is more than about 12 minutes old.
 - Markets that drop out of the live listing keep their last known price unless you hold them (held markets are

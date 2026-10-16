@@ -6,6 +6,7 @@ import { useAccountStore } from '../../store/accountStore.js'
 import { useGames } from '../../store/gameStore.js'
 import { formatCurrency, formatRelativeTime, formatSignedCurrency, pnlTone } from '../../utils/format.js'
 import { GAME_NAME } from '../../games/names.js'
+import GameFeed from '../../components/games/GameFeed.jsx'
 
 function RouletteArt() {
   return (
@@ -102,7 +103,7 @@ const GAMES = [
     id: 'roulette',
     title: 'Roulette',
     blurb: 'European single-zero wheel. Bet numbers, splits, corners, dozens or red and black.',
-    facts: ['35:1 straight up', '1:1 red/black', '2.7% house edge'],
+    facts: ['35:1 straight up', '1:1 red/black'],
     Art: RouletteArt,
   },
   {
@@ -147,6 +148,7 @@ const GAMES = [
   },
 ]
 
+const RETURN_HINT = 'Average share of every bet paid back over a very large number of rounds'
 
 function RecentRounds() {
   const history = useGames((g) => g.history)
@@ -190,36 +192,43 @@ export default function GamesPage() {
         only.
       </p>
       <div className="mt-5 grid gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {GAMES.map(({ to, id, title, blurb, facts, Art }) => {
-            const s = stats[id]
-            return (
-              <Link
-                key={to}
-                to={to}
-                className="group card flex flex-col overflow-hidden transition hover:-translate-y-0.5 hover:border-line-strong focus-visible:ring-2 focus-visible:ring-primary-400"
-              >
-                <div className="felt flex h-36 items-center justify-center">
-                  <Art />
-                </div>
-                <div className="flex flex-1 flex-col p-4">
-                  <h2 className="text-lg font-semibold">{title}</h2>
-                  <p className="mt-1 flex-1 text-sm text-muted">{blurb}</p>
-                  <ul className="mt-3 flex flex-wrap gap-1.5">
-                    {facts.map((f) => (
-                      <li key={f} className="rounded-full bg-surface-2 px-2 py-0.5 text-[11px] text-muted">
-                        {f}
-                      </li>
-                    ))}
-                  </ul>
-                  <div className="mt-4 flex items-center justify-between text-xs">
-                    <span className="text-subtle">{s ? `${s.rounds} round${s.rounds === 1 ? '' : 's'} · ${formatCurrency(s.wagered)} wagered` : 'Not played yet'}</span>
-                    <span className="font-semibold text-primary-300 group-hover:underline">Play</span>
+        <div className="min-w-0">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {GAMES.map(({ to, id, title, blurb, facts, Art }) => {
+              const s = stats[id]
+              return (
+                <Link
+                  key={to}
+                  to={to}
+                  className="group card flex flex-col overflow-hidden transition hover:-translate-y-0.5 hover:border-line-strong focus-visible:ring-2 focus-visible:ring-primary-400"
+                >
+                  <div className="felt flex h-36 items-center justify-center">
+                    <Art />
                   </div>
-                </div>
-              </Link>
-            )
-          })}
+                  <div className="flex flex-1 flex-col p-4">
+                    <h2 className="text-lg font-semibold">{title}</h2>
+                    <p className="mt-1 flex-1 text-sm text-muted">{blurb}</p>
+                    <ul className="mt-3 flex flex-wrap gap-1.5">
+                      {facts.map((f) => (
+                        <li key={f} className="rounded-full bg-surface-2 px-2 py-0.5 text-[11px] text-muted" title={f.includes('return') ? RETURN_HINT : undefined}>
+                          {f}
+                        </li>
+                      ))}
+                    </ul>
+                    <div className="mt-4 flex items-center justify-between text-xs">
+                      <span className="text-subtle">{s ? `${s.rounds} round${s.rounds === 1 ? '' : 's'} · ${formatCurrency(s.wagered)} wagered` : 'Not played yet'}</span>
+                      <span className="font-semibold text-primary-300 group-hover:underline">Play</span>
+                    </div>
+                  </div>
+                </Link>
+              )
+            })}
+          </div>
+          <p id="return-note" className="mt-4 text-xs leading-relaxed text-subtle">
+            <span className="font-semibold text-muted">What &quot;return&quot; means:</span> the share of all money bet that a game pays back on average over a
+            very large number of rounds. A 99% return means every $100 bet pays back about $99, so the house keeps about $1. Any single session can land far
+            above or below that.
+          </p>
         </div>
         <aside className="space-y-4" aria-label="Chips">
           {user ? (
@@ -230,6 +239,7 @@ export default function GamesPage() {
           ) : (
             <LoginToPlay />
           )}
+          <GameFeed />
         </aside>
       </div>
     </div>
