@@ -182,6 +182,21 @@ create table if not exists public.activity (
 );
 create index if not exists activity_created_idx on public.activity (created_at desc);
 
+-- Feedback and suggestions from the Feedback tab. Private: only the owner reads
+-- it (Supabase Table Editor, or the "Admin - feedback report" workflow).
+create table if not exists public.feedback (
+  id bigint generated always as identity primary key,
+  user_id uuid references auth.users (id) on delete cascade,
+  username text,
+  category text not null check (category in ('suggestion', 'bug', 'other')),
+  message text not null check (length(message) between 3 and 1000),
+  page text check (length(page) <= 200),
+  status text not null default 'new' check (status in ('new', 'reviewed')),
+  created_at timestamptz not null default now()
+);
+create index if not exists feedback_created_idx on public.feedback (created_at desc);
+create index if not exists feedback_user_idx on public.feedback (user_id);
+
 create table if not exists private.rate_limits (
   user_id uuid not null,
   bucket text not null,
@@ -210,6 +225,12 @@ alter table public.activity enable row level security;
 
 revoke insert, update, delete, truncate on all tables in schema public from anon, authenticated;
 revoke all on public.blackjack_tables, public.recovery_codes, public.fair_seeds, public.game_states from anon, authenticated;
+alter table public.feedback enable row level security;
+revoke all on public.feedback from anon, authenticated;
+do $$ begin
+  grant select, update on public.feedback to service_role;
+exception when undefined_object then null;
+end $$;
 
 drop policy if exists "profiles are public" on public.profiles;
 create policy "profiles are public" on public.profiles for select using (true);
@@ -620,8 +641,9 @@ create or replace function private.handle_new_user() returns trigger
 language plpgsql security definer set search_path = '' as $$
 declare v_name text := trim(coalesce(new.raw_user_meta_data ->> 'username', ''));
 begin
-  if v_name !~ '^[A-Za-z0-9_.+-]{1,20}$' then
-    raise exception 'Pick a username of up to 20 letters, numbers or underscores.';
+  -- Same rule as the sign-up form, so direct API sign-ups can't make look-alikes such as j.bg or jbg-.
+  if v_name !~ '^[A-Za-z0-9_]{3,20}$' then
+    raise exception 'Pick a username of 3 to 20 letters, numbers or underscores.';
   end if;
   if private.is_reserved_name(v_name) then raise exception 'That username is reserved. Pick another.'; end if;
   -- A username's login address (<name>@users.chamimarket.app, see VITE_USERNAME_EMAIL_DOMAIN) belongs to that
@@ -903,6 +925,37 @@ begin
   on conflict (market_id) do nothing;
   if not found then return 0; end if;
   return private.settle_market(p_market, p_outcome);
+end $$;
+
+/**
+ * Stores one message from the Feedback tab. Guests can send too. Limits keep
+ * it from being flooded: 5 an hour per player, 20 an hour from all guests
+ * together, 200 an hour and 1,000 a day overall, and no more than 2,000
+ * waiting for review. Problems come back as { error }.
+ */
+create or replace function public.submit_feedback(p_category text, p_message text, p_page text default null) returns jsonb
+language plpgsql volatile security definer set search_path = '' as $$
+declare v_user uuid := auth.uid(); msg text; pg text;
+begin
+  if coalesce(p_category, '') not in ('suggestion', 'bug', 'other') then return jsonb_build_object('error', 'Pick a type of feedback.'); end if;
+  -- Control, zero-width and text-direction characters out, whitespace tidied.
+  msg := regexp_replace(coalesce(p_message, ''), '[\x01-\x09\x0b-\x1f\x7f\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]', '', 'g');
+  msg := btrim(regexp_replace(msg, '[ \t]+', ' ', 'g'), E' \n');
+  if length(msg) < 3 then return jsonb_build_object('error', 'Write a little more first.'); end if;
+  if length(msg) > 1000 then return jsonb_build_object('error', 'Keep it under 1,000 characters.'); end if;
+  pg := left(regexp_replace(coalesce(p_page, ''), '[^A-Za-z0-9/_.?=&%#-]', '', 'g'), 200);
+  -- One submission checks the limits at a time, so a burst of parallel calls can't slip past them.
+  perform pg_advisory_xact_lock(hashtext('submit_feedback'));
+  if (select count(*) from public.feedback where status = 'new') >= 2000
+    or (select count(*) from public.feedback where created_at > now() - interval '1 day') >= 1000
+    or (select count(*) from public.feedback where created_at > now() - interval '1 hour') >= 200
+    or (v_user is not null and (select count(*) from public.feedback where user_id = v_user and created_at > now() - interval '1 hour') >= 5)
+    or (v_user is null and (select count(*) from public.feedback where user_id is null and created_at > now() - interval '1 hour') >= 20) then
+    return jsonb_build_object('error', 'Thanks! That''s a lot of feedback for now. Try again in an hour.');
+  end if;
+  insert into public.feedback (user_id, username, category, message, page)
+  values (v_user, private.username_of(v_user), p_category, msg, nullif(pg, ''));
+  return jsonb_build_object('ok', true);
 end $$;
 
 /** Lets a player trigger an immediate check of a Polymarket market they hold (settles it if closed). */
@@ -1925,6 +1978,7 @@ revoke execute on all functions in schema public from public, anon, authenticate
 grant execute on function public.username_available(text) to anon, authenticated;
 grant execute on function public.reset_password_with_code(text, text, text) to anon, authenticated;
 grant execute on function public.leaderboard() to anon, authenticated;
+grant execute on function public.submit_feedback(text, text, text) to anon, authenticated;
 grant execute on function
   public.get_portfolio(),
   public.create_recovery_code(),

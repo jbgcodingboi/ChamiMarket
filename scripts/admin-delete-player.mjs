@@ -9,9 +9,24 @@
  * rounds and state, seeds, recovery codes, snapshots and feed entries all
  * cascade from auth.users, so the player also leaves the leaderboard.
  */
+import { readFileSync } from 'node:fs'
+
 const BASE = process.env.SUPABASE_URL?.trim().replace(/\/+$/, '')
 const KEY = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()
-const PLAYER = process.env.PLAYER?.trim()
+/**
+ * The username comes from the workflow's dispatch inputs (read from the event
+ * file, so it never appears in a step's env list in the public log), or from
+ * PLAYER when run by hand.
+ */
+function playerName() {
+  if (process.env.PLAYER) return process.env.PLAYER.trim()
+  try {
+    return JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8')).inputs?.username?.trim()
+  } catch {
+    return undefined
+  }
+}
+const PLAYER = playerName()
 
 const stop = (msg) => {
   console.error(msg)
@@ -35,13 +50,14 @@ const findProfile = async () => (await call('GET', `/rest/v1/profiles?select=id,
 
 const profile = await findProfile()
 if (!profile) {
-  console.log(`No player named "${PLAYER}". Nothing to delete.`)
+  // The repository's logs are public, so neither the name nor the id is printed.
+  console.log('No player with that username. Nothing to delete.')
   process.exit(0)
 }
-console.log(`Deleting "${profile.username}" and all of their data...`)
+console.log('Deleting the player and all of their data...')
 await call('DELETE', `/auth/v1/admin/users/${profile.id}`)
 
-if (await findProfile()) stop(`"${PLAYER}" is still there. Check the Supabase dashboard.`)
+if (await findProfile()) stop('The player is still there. Check the Supabase dashboard.')
 const leftovers = await call('GET', `/rest/v1/portfolios?select=user_id&user_id=eq.${profile.id}`)
 if (leftovers.length) stop('The login is gone but a portfolio remains. Check the Supabase dashboard.')
-console.log(`Done: "${profile.username}" is deleted, along with their portfolio, trades, games and leaderboard entries.`)
+console.log('Done: the player is deleted, along with their portfolio, trades, games, feedback and leaderboard entries.')
