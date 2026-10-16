@@ -103,3 +103,12 @@ export function pnlTone(v) {
   if (n < -0.004) return 'text-no'
   return 'text-muted'
 }
+
+/** Countdown text for a market close, e.g. "Closes in 2h 05m". */
+export function closesInText(ms) {
+  const m = Math.floor(ms / 60000)
+  if (m < 1) return 'Closing now'
+  if (m < 60) return `Closes in ${m}m`
+  const h = Math.floor(m / 60)
+  return `Closes in ${h}h ${String(m % 60).padStart(2, '0')}m`
+}

@@ -7,6 +7,7 @@ export const useUiStore = create((set) => ({
   auth: { open: false, mode: 'login', message: '' },
   resetOpen: false,
   feedCollapsed: false,
+  endingSoon: false,
 
   setQuery: (query) => set({ query }),
   setCategory: (category) => set({ category }),
@@ -15,4 +16,5 @@ export const useUiStore = create((set) => ({
   closeAuth: () => set((s) => ({ auth: { ...s.auth, open: false } })),
   setResetOpen: (resetOpen) => set({ resetOpen }),
   toggleFeed: () => set((s) => ({ feedCollapsed: !s.feedCollapsed })),
+  toggleEndingSoon: () => set((s) => ({ endingSoon: !s.endingSoon })),
 }))

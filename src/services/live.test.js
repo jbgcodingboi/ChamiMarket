@@ -93,7 +93,7 @@ describe('live data flow', () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     clock += 60000
     vi.setSystemTime(clock)
-    useMarketStore.setState({ status: 'loading', source: null, stale: false, markets: {}, order: [], known: {}, tagIds: null, lastUpdated: null, snapshotResolutions: {}, tick: 0 })
+    useMarketStore.setState({ status: 'loading', source: null, stale: false, markets: {}, order: [], known: {}, tagIds: null, lastUpdated: null, snapshotResolutions: {}, baseList: [], houseList: [], houseResults: {}, tick: 0 })
   })
   afterEach(() => {
     vi.useRealTimers()
@@ -168,6 +168,7 @@ describe('live data flow', () => {
       lastUpdated: Date.now(),
       markets: { a: { ...normalizeGammaMarket(rawMarket({ id: 'a' }), 'sports') } },
       order: ['a'],
+      baseList: [normalizeGammaMarket(rawMarket({ id: 'a' }), 'sports')],
     })
     vi.stubGlobal('fetch', vi.fn(async () => {
       throw new TypeError('Failed to fetch')
