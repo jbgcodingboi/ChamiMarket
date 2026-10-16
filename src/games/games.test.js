@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { STARTING_CHIPS, useGameStore } from '../store/gameStore.js'
+import { STARTING_CASH } from '../config.js'
+import { useAccountStore } from '../store/accountStore.js'
+import { debit, finish, flush, gamesOf, place, runGames, settle } from '../store/gameStore.js'
+import { createPortfolio, resetPortfolio } from '../utils/portfolio.js'
 import { canDouble, canSplit, deal, dealerShouldHit, double, handValue, hit, initialState, insurance, isBlackjack, split, stand } from './blackjack.js'
 import { bucketOf, bucketProbability, dropPath, expectedReturn, MULTIPLIERS, RISKS, ROW_OPTIONS } from './plinko.js'
 import { flightPlan, GRAVITY } from './plinkoPhysics.js'
@@ -181,23 +184,42 @@ describe('plinko physics', () => {
   })
 })
 
-describe('chip wallet', () => {
-  it('debits held bets and pays them out exactly once', () => {
-    const store = useGameStore.getState()
-    store.syncOwner()
-    expect(useGameStore.getState().wallet.balance).toBe(STARTING_CHIPS)
-    const id = store.place({ game: 'plinko', staked: 100, returned: 250, detail: '2.5×' })
-    expect(useGameStore.getState().wallet.balance).toBe(STARTING_CHIPS - 100)
-    expect(store.finish(id).net).toBe(150)
-    expect(store.finish(id)).toBeNull()
-    expect(useGameStore.getState().wallet.balance).toBe(STARTING_CHIPS + 150)
-    store.place({ game: 'roulette', staked: 50, returned: 0, detail: '17 Red' })
-    store.flush('roulette')
-    const w = useGameStore.getState().wallet
-    expect(w.balance).toBe(STARTING_CHIPS + 100)
-    expect(w.pending).toHaveLength(0)
-    expect(w.stats.roulette).toMatchObject({ rounds: 1, wagered: 50, net: -50 })
-    expect(store.place({ game: 'plinko', staked: 1e9, returned: 0 })).toBeNull()
-    expect(store.refill()).toBe(false)
+describe('games and the portfolio', () => {
+  const cash = () => useAccountStore.getState().portfolio.cash
+  it('bets and pays out with portfolio cash, exactly once per round', () => {
+    useAccountStore.setState({ user: { id: 'u_test', username: 'tester' }, portfolio: createPortfolio() })
+    expect(cash()).toBe(STARTING_CASH)
+    const id = place({ game: 'plinko', staked: 100, returned: 250, detail: '2.5×' })
+    expect(cash()).toBe(STARTING_CASH - 100)
+    expect(finish(id).net).toBe(150)
+    expect(finish(id)).toBeNull()
+    expect(cash()).toBe(STARTING_CASH + 150)
+    place({ game: 'roulette', staked: 50, returned: 0, detail: '17 Red' })
+    flush('roulette')
+    const run = debit(20)
+    expect(run).toBe(1)
+    settle({ run, game: 'blackjack', staked: 20, returned: 40, detail: 'Win' })
+    const p = useAccountStore.getState().portfolio
+    expect(p.cash).toBe(STARTING_CASH + 120)
+    expect(gamesOf(p).pending).toHaveLength(0)
+    expect(gamesOf(p).stats.roulette).toMatchObject({ rounds: 1, wagered: 50, net: -50 })
+    expect(runGames(p)).toEqual({ net: 120, rounds: 3 })
+    expect(place({ game: 'plinko', staked: 1e9, returned: 0 })).toBeNull()
+  })
+  it('drops rounds from before a balance reset', () => {
+    const id = place({ game: 'plinko', staked: 100, returned: 1000, detail: '10×' })
+    const run = debit(10)
+    const reset = resetPortfolio(useAccountStore.getState().portfolio)
+    useAccountStore.setState({ portfolio: reset })
+    expect(runGames(reset)).toEqual({ net: 0, rounds: 0 })
+    expect(finish(id)).toBeNull()
+    expect(settle({ run, game: 'blackjack', staked: 10, returned: 20 })).toBeNull()
+    expect(cash()).toBe(reset.cash)
+    expect(gamesOf(useAccountStore.getState().portfolio).pending).toHaveLength(0)
+  })
+  it('needs an account', () => {
+    useAccountStore.setState({ user: null, portfolio: null })
+    expect(debit(10)).toBeNull()
+    expect(place({ game: 'plinko', staked: 10, returned: 0 })).toBeNull()
   })
 })

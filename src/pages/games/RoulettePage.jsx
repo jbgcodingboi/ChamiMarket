@@ -5,7 +5,7 @@ import RouletteTable from '../../components/games/roulette/RouletteTable.jsx'
 import RouletteWheel from '../../components/games/roulette/RouletteWheel.jsx'
 import { useDocumentTitle } from '../../hooks/useDocumentTitle.js'
 import { colorOf, ODDS, spin, totalReturn } from '../../games/roulette.js'
-import { useGameStore } from '../../store/gameStore.js'
+import { finish, place, useChips } from '../../store/gameStore.js'
 import { toast } from '../../store/toastStore.js'
 import { roundMoney } from '../../utils/math.js'
 import { readJSON, writeJSON } from '../../utils/storage.js'
@@ -63,9 +63,7 @@ function Rules() {
 
 export default function RoulettePage() {
   useDocumentTitle('Roulette')
-  const balance = useGameStore((s) => s.wallet.balance)
-  const place = useGameStore((s) => s.place)
-  const finish = useGameStore((s) => s.finish)
+  const balance = useChips()
   const [chip, setChip] = useState(25)
   const [stack, setStack] = useState([])
   const [lastStack, setLastStack] = useState([])

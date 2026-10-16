@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Chip, ChipSelector } from '../../components/games/Chip.jsx'
 import GameShell from '../../components/games/GameShell.jsx'
 import PlayingCard from '../../components/games/PlayingCard.jsx'
 import { useDocumentTitle } from '../../hooks/useDocumentTitle.js'
 import * as bj from '../../games/blackjack.js'
-import { useGameStore } from '../../store/gameStore.js'
+import { useAccountStore } from '../../store/accountStore.js'
+import { debit, settle, useChips } from '../../store/gameStore.js'
 import { toast } from '../../store/toastStore.js'
 import { roundMoney } from '../../utils/math.js'
 import { isPlainObject, readJSON, writeJSON } from '../../utils/storage.js'
@@ -80,14 +81,16 @@ function Rules() {
 }
 
 function Table({ owner }) {
-  const balance = useGameStore((s) => s.wallet.balance)
-  const debit = useGameStore((s) => s.debit)
-  const settle = useGameStore((s) => s.settle)
+  const balance = useChips()
+  const run = useAccountStore((s) => s.portfolio?.run)
   const [table, setTable] = useState(() => readJSON(tableKey(owner), isTable, null) ?? freshTable())
   const [bet, setBet] = useState(() => Math.min(table.lastBet ?? 25, Math.max(balance, 0)))
   const [chip, setChip] = useState(25)
   const [reveal, setReveal] = useState(() => (table.settled ? Infinity : 1))
-  const g = table.game
+  // A balance reset ends the run, so a hand dealt before it is void.
+  const voided = !table.settled && table.run !== undefined && table.run !== run
+  const g = useMemo(() => (voided ? { ...table.game, phase: 'betting', dealer: [], hands: [], result: null } : table.game), [voided, table.game])
+  const settled = voided || table.settled
 
   useEffect(() => {
     writeJSON(tableKey(owner), table)
@@ -95,7 +98,7 @@ function Table({ owner }) {
 
   // When a round ends, turn the dealer's cards over one at a time, then pay out.
   useEffect(() => {
-    if (g.phase !== 'done' || table.settled) return undefined
+    if (g.phase !== 'done' || settled) return undefined
     const cards = g.dealer.length
     const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
     let shown = 1
@@ -103,7 +106,7 @@ function Table({ owner }) {
     const payOut = () => {
       const { result, hands } = g
       const outcomes = hands.map((h) => OUTCOME[h.outcome][0].replace('!', '')).join(', ')
-      settle({ game: 'blackjack', staked: result.staked, returned: result.returned, detail: `${outcomes} vs dealer ${bj.isBlackjack(g.dealer) ? 'blackjack' : bj.handValue(g.dealer).total}` })
+      settle({ run: table.run, game: 'blackjack', staked: result.staked, returned: result.returned, detail: `${outcomes} vs dealer ${bj.isBlackjack(g.dealer) ? 'blackjack' : bj.handValue(g.dealer).total}` })
       setTable((t) => ({ ...t, settled: true }))
     }
     const tick = () => {
@@ -113,10 +116,10 @@ function Table({ owner }) {
     }
     timer = setTimeout(tick, reduce ? 0 : 350)
     return () => clearTimeout(timer)
-  }, [g, table.settled, settle])
+  }, [g, settled, table.run])
 
-  const betting = g.phase === 'betting' || (g.phase === 'done' && table.settled)
-  const busy = g.phase === 'done' && !table.settled
+  const betting = g.phase === 'betting' || (g.phase === 'done' && settled)
+  const busy = g.phase === 'done' && !settled
 
   const update = (game) => setTable((t) => ({ ...t, game }))
   const pay = (amount, what) => {
@@ -129,7 +132,7 @@ function Table({ owner }) {
     if (!(bet >= 1)) return toast({ tone: 'error', title: 'Place a bet first' })
     if (!pay(bet, 'This bet')) return
     setReveal(1)
-    setTable((t) => ({ game: bj.deal(t.game, bet), round: t.round + 1, settled: false, lastBet: bet }))
+    setTable((t) => ({ game: bj.deal(t.game, bet), round: t.round + 1, settled: false, lastBet: bet, run }))
   }
 
   const addChip = (v) => {
@@ -145,8 +148,8 @@ function Table({ owner }) {
   const doubleDown = () => pay(bj.cost(g, 'double'), 'Doubling') && update(bj.double(g))
   const splitHand = () => pay(bj.cost(g, 'split'), 'Splitting') && update(bj.split(g))
 
-  const dealerHiddenFrom = g.phase === 'player' || g.phase === 'insurance' ? 1 : table.settled ? Infinity : reveal
-  const dealerShown = g.dealer.slice(0, g.phase === 'done' && !table.settled ? Math.max(reveal, 2) : g.dealer.length)
+  const dealerHiddenFrom = g.phase === 'player' || g.phase === 'insurance' ? 1 : settled ? Infinity : reveal
+  const dealerShown = g.dealer.slice(0, g.phase === 'done' && !settled ? Math.max(reveal, 2) : g.dealer.length)
   const visibleDealer = dealerShown.slice(0, Math.min(dealerShown.length, dealerHiddenFrom))
   const net = g.result ? roundMoney(g.result.returned - g.result.staked) : 0
   const playerCanAct = g.phase === 'player'
@@ -181,7 +184,7 @@ function Table({ owner }) {
               label={totalLabel(h.cards)}
               bet={h.bet}
               active={playerCanAct && g.hands.length > 1 && i === g.active}
-              outcome={table.settled && g.phase === 'done' ? h.outcome : null}
+              outcome={settled && g.phase === 'done' ? h.outcome : null}
               small={g.hands.length > 2}
             />
           ))}
@@ -200,7 +203,7 @@ function Table({ owner }) {
               </button>
             </div>
           )}
-          {g.phase === 'done' && table.settled && g.result && (
+          {g.phase === 'done' && settled && g.result && (
             <div className={`inline-flex flex-col items-center rounded-2xl bg-black/50 px-5 py-2 animate-scale-in ${net > 0 ? 'animate-win-pulse' : ''}`}>
               <span className={`text-lg font-bold tabular ${net > 0 ? 'text-yes' : net < 0 ? 'text-no' : 'text-white'}`}>
                 {net > 0 ? `You win ${formatCurrency(net)}` : net < 0 ? `You lose ${formatCurrency(-net)}` : 'Push, bet returned'}
@@ -264,11 +267,10 @@ function Table({ owner }) {
 
 export default function BlackjackPage() {
   useDocumentTitle('Blackjack')
-  const owner = useGameStore((s) => s.owner)
-  const loaded = useGameStore((s) => s.loaded)
+  const owner = useAccountStore((s) => s.user?.id ?? null)
   return (
     <GameShell game="blackjack" title="Blackjack" subtitle="Six decks. Blackjack pays 3:2, dealer stands on soft 17." rules={<Rules />}>
-      {loaded ? <Table key={owner ?? 'guest'} owner={owner} /> : <div className="felt h-96 rounded-3xl" />}
+      <Table key={owner ?? 'guest'} owner={owner} />
     </GameShell>
   )
 }
