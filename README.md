@@ -250,7 +250,7 @@ browser. Connecting a free [Supabase](https://supabase.com) project turns Chami 
   way to reset a forgotten password, and using it issues a new one. A new code can be made from the account menu.
 - **Delete account** in the account menu, after typing the username and password. The server
   (`delete_account`) removes the login and everything tied to it, including leaderboard rows and feed entries.
-- **Terms**: a first-visit pop-up with one "I understand and agree" button links to the full Terms of Use
+- **Terms**: a first-visit pop-up with just a link to the full Terms of Use and one "I understand and agree" button
   (`#/terms`). Agreement is stored per browser and versioned by `TERMS_VERSION` in `src/config.js`, and sign-ups
   record the accepted version in the account's metadata.
 - **A true leaderboard**: every player, valued on the server, on the Overall, Markets and Games boards.
