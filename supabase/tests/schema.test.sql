@@ -242,6 +242,100 @@ begin
     format('150 random hands balance to the cent (staked %s, returned %s)', staked, returned));
 end $$;
 
+-- Provably fair games ---------------------------------------------------------
+reset role;
+-- Known seeds, so results can be checked against src/games (see src/games/fairgames.test.js vectors).
+insert into public.fair_seeds (user_id, server_seed, client_seed, nonce) values (:'alice', repeat('b', 64), 'chami', 0)
+on conflict (user_id) do update set server_seed = excluded.server_seed, client_seed = excluded.client_seed, nonce = 0;
+set role authenticated;
+select set_config('request.jwt.claim.sub', :'alice', false);
+select pg_temp.clear_limits();
+select pg_temp.expect_error($$select * from public.fair_seeds$$, '%permission denied%');
+select pg_temp.expect_error($$select * from public.game_states$$, '%permission denied%');
+select pg_temp.ok(public.fair_state() ->> 'serverSeedHash' = 'a0fab1377f49a759b57f63318262ebe89fabfc990e8e93ceac2984561482b9d4'
+  and not public.fair_state() ? 'serverSeed', 'only the hash of the active server seed is shown');
+
+do $$
+declare r jsonb; before numeric := (public.get_portfolio() ->> 'cash')::numeric;
+begin
+  r := public.play_dice(10, 50, true);
+  perform pg_temp.ok((r ->> 'roll')::int = 9490 and (r ->> 'nonce')::int = 0 and (r ->> 'win')::boolean
+    and (r ->> 'multiplier')::numeric = 1.98 and (r ->> 'payout')::numeric = 19.8, 'dice nonce 0 rolls 94.90, the same as the browser engine');
+  r := public.play_dice(10, 80, false);
+  perform pg_temp.ok((r ->> 'roll')::int = 8371 and not (r ->> 'win')::boolean and (r ->> 'payout')::numeric = 0
+    and (r ->> 'multiplier')::numeric = 1.2375, 'dice nonce 1 rolls 83.71 and loses under 80 (1.2375x)');
+  perform pg_temp.ok((public.get_portfolio() ->> 'cash')::numeric = before - 20 + 19.8, 'dice pays from cash');
+  perform pg_temp.expect_error($q$select public.play_dice(10, 1, true)$q$, '%between 2 and 98%');
+  perform pg_temp.expect_error($q$select public.play_dice(0.05, 50, true)$q$, '%at least $0.10%');
+end $$;
+
+do $$
+declare r jsonb; before numeric := (public.get_portfolio() ->> 'cash')::numeric;
+begin
+  perform pg_temp.expect_error($q$select public.mines_reveal(3)$q$, '%Start a round%');
+  perform pg_temp.expect_error($q$select public.mines_start(10, 25)$q$, '%1 to 24 mines%');
+  r := public.mines_start(10, 3);
+  perform pg_temp.ok(r -> 'round' ->> 'phase' = 'playing' and not (r -> 'round') ? 'positions' and r -> 'round' -> 'result' = 'null'
+    and (r -> 'round' ->> 'nonce')::int = 2, 'mine positions stay on the server during a round');
+  perform pg_temp.expect_error($q$select public.mines_start(10, 3)$q$, '%current round%');
+  perform pg_temp.expect_error($q$select public.fair_rotate('new-seed')$q$, '%Finish your Mines%');
+  perform pg_temp.expect_error($q$select public.mines_cashout()$q$, '%at least one tile%');
+  r := public.mines_reveal(0);
+  perform pg_temp.ok((r -> 'round' ->> 'multiplier')::numeric = 1.12 and (r -> 'round' ->> 'nextMultiplier')::numeric = 1.28, 'one gem with 3 mines is 1.12x, next 1.28x');
+  perform pg_temp.expect_error($q$select public.mines_reveal(0)$q$, '%already open%');
+  r := public.mines_reveal(1);
+  r := public.mines_cashout();
+  perform pg_temp.ok(r -> 'round' -> 'result' -> 'positions' = '[6, 7, 24]' and (r -> 'round' -> 'result' ->> 'payout')::numeric = 12.8,
+    'cashing out two gems pays 1.28x and reveals mines 6, 7 and 24, the same as the browser engine');
+  perform pg_temp.ok((public.get_portfolio() ->> 'cash')::numeric = before + 2.8, 'mines pays from cash');
+end $$;
+
+do $$
+declare r jsonb; i int; before numeric := (public.get_portfolio() ->> 'cash')::numeric;
+begin
+  r := public.chicken_start(10, 'medium');
+  perform pg_temp.ok(not (r -> 'round') ? 'crash' and (r -> 'round' ->> 'nonce')::int = 3 and (r -> 'round' ->> 'lanes')::int = 25,
+    'the crash lane stays on the server');
+  for i in 1..5 loop r := public.chicken_step(); end loop;
+  perform pg_temp.ok((r -> 'round' ->> 'lane')::int = 5 and (r -> 'round' ->> 'multiplier')::numeric = 1.85, 'five medium lanes reach 1.85x');
+  r := public.chicken_step();
+  perform pg_temp.ok(r -> 'round' ->> 'phase' = 'done' and (r -> 'round' -> 'result' ->> 'hitLane')::int = 6
+    and (r -> 'round' -> 'result' ->> 'payout')::numeric = 0, 'nonce 3 is hit on medium lane 6, the same as the browser engine');
+  perform pg_temp.ok((public.get_portfolio() ->> 'cash')::numeric = before - 10, 'a hit loses the bet');
+  perform pg_temp.expect_error($q$select public.chicken_step()$q$, '%Start a round%');
+  perform pg_temp.expect_error($q$select public.chicken_start(10, 'insane')$q$, '%Daredevil%');
+end $$;
+
+do $$
+declare r jsonb; i int; before numeric; staked numeric := 0; back numeric := 0; f jsonb;
+begin
+  before := (public.get_portfolio() ->> 'cash')::numeric;
+  for i in 1..30 loop
+    perform pg_temp.clear_limits();
+    r := public.mines_auto(5, 5, array[0, 1, 2]);
+    back := back + (r -> 'round' -> 'result' ->> 'payout')::numeric;
+    if (r -> 'round' -> 'result' ->> 'win')::boolean and (r -> 'round' -> 'result' ->> 'multiplier')::numeric <> 1.99 then
+      raise exception 'mines auto paid %', r -> 'round' -> 'result';
+    end if;
+    r := public.chicken_auto(5, 'hard', 3);
+    back := back + (r -> 'round' -> 'result' ->> 'payout')::numeric;
+    if (r -> 'round' -> 'result' ->> 'win')::boolean and ((r -> 'round' -> 'result' ->> 'multiplier')::numeric <> 1.91 or (r -> 'round' ->> 'lane')::int <> 3) then
+      raise exception 'chicken auto paid %', r -> 'round' -> 'result';
+    end if;
+    staked := staked + 10;
+  end loop;
+  perform pg_temp.ok((public.get_portfolio() ->> 'cash')::numeric = before - staked + back,
+    format('60 auto rounds balance to the cent (staked %s, returned %s)', staked, back));
+  perform pg_temp.expect_error($q$select public.mines_auto(5, 5, array[1, 1])$q$, '%different tiles%');
+  perform pg_temp.expect_error($q$select public.chicken_auto(5, 'hard', 23)$q$, '%from 1 to 22%');
+
+  f := public.fair_rotate('lucky-7');
+  perform pg_temp.ok(f -> 'previous' ->> 'serverSeed' = repeat('b', 64) and (f -> 'previous' ->> 'nonce')::int = 64
+    and f ->> 'clientSeed' = 'lucky-7' and (f ->> 'nonce')::int = 0 and f ->> 'serverSeedHash' <> f -> 'previous' ->> 'serverSeedHash',
+    'rotating reveals the old server seed (64 bets) and starts a fresh pair');
+  perform pg_temp.expect_error($q$select public.fair_rotate('has space')$q$, '%no spaces%');
+end $$;
+
 -- Rate limits ----------------------------------------------------------------
 do $$ declare i int; begin
   perform pg_temp.clear_limits();
@@ -252,7 +346,7 @@ do $$ declare i int; begin
 end $$;
 
 -- Portfolio JSON and the leaderboard -----------------------------------------
-select pg_temp.ok((public.get_portfolio() -> 'games' ->> 'runRounds')::int = 300 + 25 + 5 + 150 + 40, 'every game round is recorded');
+select pg_temp.ok((public.get_portfolio() -> 'games' ->> 'runRounds')::int = 300 + 25 + 5 + 150 + 2 + 2 + 60 + 40, 'every game round is recorded');
 select pg_temp.ok((public.get_portfolio() -> 'games' -> 'stats' -> 'blackjack' ->> 'rounds')::int = 155, 'per-game stats');
 select pg_temp.ok(jsonb_array_length(public.leaderboard()) = 2, 'the leaderboard lists every player');
 select pg_temp.ok((select (r ->> 'pnl')::numeric = (r ->> 'marketPnl')::numeric + (r -> 'games' ->> 'net')::numeric

@@ -51,7 +51,7 @@ Requires Node 20.19+ (Node 22 recommended).
   wagered, biggest win and favorite game). Markets PnL plus games net always equals the overall PnL. The selected
   board is kept in the URL (`#/leaderboard?board=games`).
 - **Guest mode**: everything is browsable without an account; trading, the portfolio and resets need one.
-- **Games**: Roulette, Blackjack and Plinko, played with your portfolio cash (see below).
+- **Games**: Roulette, Blackjack, Plinko, Dice, Mines and Chicken Cross, played with your portfolio cash (see below).
 
 ## How the paper trading math works
 
@@ -160,7 +160,7 @@ Polymarket's resolution. Only markets whose outcomes match both teams of one ESP
 
 ## Games
 
-The **Games** tab (between Markets and Leaderboard) has three casino games that bet with your portfolio cash, the
+The **Games** tab (between Markets and Leaderboard) has six casino games that bet with your portfolio cash, the
 same $100,000 you trade with. Wins and losses change your net worth, the equity chart and your leaderboard rank
 like any trade, and a balance reset covers games too. Playing needs an account, just like trading. Every round is
 logged on the portfolio's **Games** tab, with per-game stats (rounds, amount wagered, net) and a "Games this run"
@@ -177,6 +177,26 @@ sampling, so outcomes are unbiased.
 - **Plinko**: a canvas board with gravity and a bounce off a pin on every row. Choose 8, 12 or 16 rows, low,
   medium or high risk, and 1 to 25 balls at a time. Each ball goes left or right with equal chance at each row,
   so buckets follow a binomial distribution; every row and risk setting returns about 99% over the long run.
+
+- **Dice**: a roll from 0.00 to 100.00. Drag the slider to a target and pick Roll Over or Roll Under; the multiplier,
+  target and win chance fields stay linked. Win chances run from 2% to 98% and pay 99 ÷ chance (1.98× at 50%, 49.5×
+  at 2%), a 99% return.
+- **Mines**: a 5×5 grid with 1 to 24 mines. Each gem pays 0.99 ÷ the chance of getting that far safely (1.03× for a
+  gem with 1 mine, 24.75× with 24), a 99% return. Cash out any time, pick random tiles, or set an automatic cash out.
+- **Chicken Cross**: hop a chicken lane by lane across traffic. Easy survives 96% of lanes over 30 lanes, Medium 88%
+  over 25, Hard 80% over 22 and Daredevil 60% over 18 (up to about 9,600×). Lane n pays 0.98 ÷ chanceⁿ, a 98% return.
+  A tilted roadway with moving traffic, a multiplier on every lane's manhole, hop, cash-out and crash animations.
+
+Dice, Mines and Chicken Cross have **auto play**: a number of bets, raising the bet by a percentage after a win or a
+loss (one click sets up Martingale), and stops at a profit or loss you choose. Mines auto opens the same picked tiles
+every round; Chicken Cross auto cashes out at a lane you choose. Small synthesized sounds can be muted.
+
+They are also **provably fair**, using the scheme Stake-style games publish: each result comes from
+`HMAC-SHA256(server seed, "<client seed>:<nonce>:<round>")`, four bytes per random number. You see the SHA-256 hash
+of the server seed before betting, choose your own client seed, and the nonce counts your bets. **Change seeds**
+reveals the old server seed, and the built-in verifier recomputes any dice roll, mine layout or crash lane from it.
+With the backend, the server seed, mine positions and crash lane never leave the server until the round or seed pair
+is finished; the database functions use the same formulas, and tests check both produce identical results.
 
 The engines are pure functions in `src/games/` (with tests). A round's stake is taken when it starts and the
 payout is credited when the animation ends; if you leave the page mid-spin or mid-drop, the payout is credited

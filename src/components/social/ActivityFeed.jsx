@@ -7,8 +7,8 @@ import { formatCurrency, formatPrice, formatRelativeTime, formatSharesShort } fr
 import { ActivityIcon, PanelIcon } from '../ui/Icons.jsx'
 import SimTag from './SimTag.jsx'
 import { useFeedEntries } from './useFeedEntries.js'
+import { GAME_NAME } from '../../games/names.js'
 
-const GAME_NAME = { roulette: 'Roulette', blackjack: 'Blackjack', plinko: 'Plinko' }
 
 function GameLine({ entry }) {
   const won = entry.net > 0

@@ -5,6 +5,7 @@ import { useNow } from '../../hooks/useNow.js'
 import { useAccountStore } from '../../store/accountStore.js'
 import { useGames } from '../../store/gameStore.js'
 import { formatCurrency, formatRelativeTime, formatSignedCurrency, pnlTone } from '../../utils/format.js'
+import { GAME_NAME } from '../../games/names.js'
 
 function RouletteArt() {
   return (
@@ -54,6 +55,47 @@ function PlinkoArt() {
   )
 }
 
+function DiceArt() {
+  return (
+    <svg viewBox="0 0 100 100" className="size-24 transition duration-500 group-hover:rotate-12" aria-hidden="true">
+      <rect x="18" y="18" width="64" height="64" rx="14" fill="#fdfbf7" stroke="#c9c9d1" strokeWidth="2" />
+      {[
+        [34, 34], [66, 34], [50, 50], [34, 66], [66, 66],
+      ].map(([x, y]) => (
+        <circle key={`${x}-${y}`} cx={x} cy={y} r="6" fill="#8d191a" />
+      ))}
+    </svg>
+  )
+}
+
+function MinesArt() {
+  return (
+    <div className="grid grid-cols-3 gap-1.5" aria-hidden="true">
+      {[0, 1, 0, 0, 2, 1, 1, 0, 0].map((t, i) => (
+        <span
+          key={i}
+          className={`flex size-7 items-center justify-center rounded-md text-sm transition group-hover:scale-105 ${t === 1 ? 'bg-[#123524] text-yes' : t === 2 ? 'bg-no/40 text-no' : 'bg-white/15'}`}
+        >
+          {t === 1 ? '◆' : t === 2 ? '●' : ''}
+        </span>
+      ))}
+    </div>
+  )
+}
+
+function ChickenArt() {
+  return (
+    <div className="relative h-24 w-32 overflow-hidden rounded-lg bg-[#1d1d22]" aria-hidden="true">
+      {[0, 1, 2].map((i) => (
+        <span key={i} className="absolute inset-x-0 border-b-2 border-dashed border-white/20" style={{ top: `${(i + 1) * 25}%` }} />
+      ))}
+      <span className="absolute top-[30%] left-2 h-3 w-7 rounded bg-[#2563eb] transition duration-700 group-hover:translate-x-16" />
+      <span className="absolute top-[56%] right-2 h-3 w-7 rounded bg-[#f5b82e] transition duration-700 group-hover:-translate-x-16" />
+      <span className="absolute bottom-1 left-1/2 -translate-x-1/2 text-2xl transition duration-500 group-hover:-translate-y-8">🐔</span>
+    </div>
+  )
+}
+
 const GAMES = [
   {
     to: '/games/roulette',
@@ -79,9 +121,32 @@ const GAMES = [
     facts: ['Up to 1,000×', 'Three risk levels', 'About 99% return'],
     Art: PlinkoArt,
   },
+  {
+    to: '/games/dice',
+    id: 'dice',
+    title: 'Dice',
+    blurb: 'Roll over or under a target you set with a slider. Any win chance from 2% to 98%, with autobet.',
+    facts: ['99% return', 'Up to 49.5×', 'Provably fair'],
+    Art: DiceArt,
+  },
+  {
+    to: '/games/mines',
+    id: 'mines',
+    title: 'Mines',
+    blurb: 'Open tiles on a 5×5 grid, collect gems and cash out before you hit one of the mines you chose.',
+    facts: ['1 to 24 mines', '99% return', 'Provably fair'],
+    Art: MinesArt,
+  },
+  {
+    to: '/games/chicken',
+    id: 'chicken',
+    title: 'Chicken Cross',
+    blurb: 'Hop a chicken across lanes of traffic. Every lane raises the multiplier; cash out before it gets hit.',
+    facts: ['Four difficulties', '98% return', 'Provably fair'],
+    Art: ChickenArt,
+  },
 ]
 
-const GAME_NAME = { roulette: 'Roulette', blackjack: 'Blackjack', plinko: 'Plinko' }
 
 function RecentRounds() {
   const history = useGames((g) => g.history)
@@ -121,7 +186,7 @@ export default function GamesPage() {
     <div className="mx-auto max-w-7xl px-4 py-6">
       <h1 className="text-2xl font-bold tracking-tight">Games</h1>
       <p className="mt-1 max-w-2xl text-sm text-muted">
-        Casino games played with your portfolio cash. Every win and loss moves your net worth and leaderboard rank, just like a trade. Play money
+        Six casino games played with your portfolio cash. Every win and loss moves your net worth and leaderboard rank, just like a trade. Play money
         only.
       </p>
       <div className="mt-5 grid gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">

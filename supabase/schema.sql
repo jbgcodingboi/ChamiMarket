@@ -89,6 +89,9 @@ create table if not exists public.game_rounds (
   detail text not null default '',
   created_at timestamptz not null default now()
 );
+alter table public.game_rounds drop constraint if exists game_rounds_game_check;
+alter table public.game_rounds add constraint game_rounds_game_check
+  check (game in ('roulette', 'blackjack', 'plinko', 'dice', 'mines', 'chicken'));
 create index if not exists game_rounds_user_idx on public.game_rounds (user_id, created_at desc);
 
 create table if not exists public.equity_snapshots (
@@ -103,6 +106,27 @@ create table if not exists public.blackjack_tables (
   user_id uuid primary key references public.portfolios (user_id) on delete cascade,
   state jsonb not null,
   updated_at timestamptz not null default now()
+);
+
+-- Provably fair seeds per player. The active server seed is secret until rotated.
+create table if not exists public.fair_seeds (
+  user_id uuid primary key references public.portfolios (user_id) on delete cascade,
+  server_seed text not null,
+  client_seed text not null,
+  nonce int not null default 0,
+  prev_server_seed text,
+  prev_client_seed text,
+  prev_nonce int,
+  updated_at timestamptz not null default now()
+);
+
+-- Mines and Chicken Cross rounds in progress (mine positions and the crash lane stay here).
+create table if not exists public.game_states (
+  user_id uuid not null references public.portfolios (user_id) on delete cascade,
+  game text not null check (game in ('mines', 'chicken')),
+  state jsonb not null,
+  updated_at timestamptz not null default now(),
+  primary key (user_id, game)
 );
 
 create table if not exists public.recovery_codes (
@@ -177,13 +201,15 @@ alter table public.history enable row level security;
 alter table public.game_rounds enable row level security;
 alter table public.equity_snapshots enable row level security;
 alter table public.blackjack_tables enable row level security;
+alter table public.fair_seeds enable row level security;
+alter table public.game_states enable row level security;
 alter table public.recovery_codes enable row level security;
 alter table public.markets enable row level security;
 alter table public.resolutions enable row level security;
 alter table public.activity enable row level security;
 
 revoke insert, update, delete, truncate on all tables in schema public from anon, authenticated;
-revoke all on public.blackjack_tables, public.recovery_codes from anon, authenticated;
+revoke all on public.blackjack_tables, public.recovery_codes, public.fair_seeds, public.game_states from anon, authenticated;
 
 drop policy if exists "profiles are public" on public.profiles;
 create policy "profiles are public" on public.profiles for select using (true);
@@ -642,6 +668,7 @@ begin
   select count(*) into cleared from public.positions where user_id = v_user;
   delete from public.positions where user_id = v_user;
   delete from public.blackjack_tables where user_id = v_user;
+  delete from public.game_states where user_id = v_user;
   insert into public.history (user_id, run, type, amount, note) values (v_user, pf.run, 'reset', 50000,
     format('Balance reset to $50,000.00. %s open position%s cleared.', cleared, case when cleared = 1 then '' else 's' end));
   update public.portfolios set cash = 50000, realized_pnl = 0, run = run + 1, run_start_cash = 50000,
@@ -1252,6 +1279,439 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------------------
+-- Provably fair games: Dice, Mines, Chicken Cross
+--
+-- Every result comes from HMAC_SHA256(server seed, "<client seed>:<nonce>:<cursor>"),
+-- 4 bytes per float, exactly like src/games/fair.js. Players see the SHA-256
+-- of the server seed before betting and the seed itself once they rotate.
+-- ---------------------------------------------------------------------------
+
+create or replace function private.fair_floats(p_server text, p_client text, p_nonce int, p_count int) returns float8[]
+language plpgsql immutable set search_path = '' as $$
+declare res float8[] := '{}'; cur int := 0; b bytea; i int;
+begin
+  while coalesce(array_length(res, 1), 0) < p_count loop
+    b := extensions.hmac(convert_to(p_client || ':' || p_nonce || ':' || cur, 'UTF8'), convert_to(p_server, 'UTF8'), 'sha256');
+    i := 0;
+    while i < 32 and coalesce(array_length(res, 1), 0) < p_count loop
+      res := res || (get_byte(b, i) / 256::float8 + get_byte(b, i + 1) / 65536::float8
+        + get_byte(b, i + 2) / 16777216::float8 + get_byte(b, i + 3) / 4294967296::float8);
+      i := i + 4;
+    end loop;
+    cur := cur + 1;
+  end loop;
+  return res;
+end $$;
+
+create or replace function private.fair_load(p_user uuid) returns public.fair_seeds
+language plpgsql volatile set search_path = '' as $$
+declare r public.fair_seeds;
+begin
+  select * into r from public.fair_seeds where user_id = p_user for update;
+  if r.user_id is null then
+    insert into public.fair_seeds (user_id, server_seed, client_seed)
+    values (p_user, encode(extensions.gen_random_bytes(32), 'hex'), encode(extensions.gen_random_bytes(8), 'hex'))
+    returning * into r;
+  end if;
+  return r;
+end $$;
+
+/** Seeds for the next bet; the nonce then moves on. */
+create or replace function private.fair_next(p_user uuid, out server_seed text, out client_seed text, out nonce int)
+language plpgsql volatile set search_path = '' as $$
+declare r public.fair_seeds := private.fair_load(p_user);
+begin
+  server_seed := r.server_seed;
+  client_seed := r.client_seed;
+  nonce := r.nonce;
+  update public.fair_seeds set nonce = r.nonce + 1, updated_at = now() where user_id = p_user;
+end $$;
+
+create or replace function private.round_active(p_user uuid) returns boolean
+language sql stable set search_path = '' as $$
+  select exists (select 1 from public.game_states where user_id = p_user and state ->> 'phase' = 'playing')
+$$;
+
+create or replace function private.fair_json(p_user uuid) returns jsonb
+language sql stable set search_path = '' as $$
+  select jsonb_build_object(
+    'serverSeedHash', encode(extensions.digest(server_seed, 'sha256'), 'hex'),
+    'clientSeed', client_seed,
+    'nonce', nonce,
+    'previous', case when prev_server_seed is null then null else jsonb_build_object(
+      'serverSeed', prev_server_seed,
+      'serverSeedHash', encode(extensions.digest(prev_server_seed, 'sha256'), 'hex'),
+      'clientSeed', prev_client_seed,
+      'nonce', prev_nonce) end)
+  from public.fair_seeds where user_id = p_user
+$$;
+
+create or replace function public.fair_state() returns jsonb
+language plpgsql volatile security definer set search_path = '' as $$
+declare v_user uuid := private.uid();
+begin
+  perform private.fair_load(v_user);
+  return private.fair_json(v_user);
+end $$;
+
+/** Reveals the current server seed and starts a new pair (with the player's new client seed). */
+create or replace function public.fair_rotate(p_client_seed text) returns jsonb
+language plpgsql volatile security definer set search_path = '' as $$
+declare v_user uuid := private.uid(); r public.fair_seeds;
+begin
+  if coalesce(p_client_seed, '') !~ '^[!-~]{1,64}$' then raise exception 'Client seeds use 1 to 64 letters, numbers or symbols, with no spaces.'; end if;
+  if private.round_active(v_user) then raise exception 'Finish your Mines or Chicken Cross round before changing seeds.'; end if;
+  r := private.fair_load(v_user);
+  update public.fair_seeds set prev_server_seed = r.server_seed, prev_client_seed = r.client_seed, prev_nonce = r.nonce,
+    server_seed = encode(extensions.gen_random_bytes(32), 'hex'), client_seed = p_client_seed, nonce = 0, updated_at = now()
+  where user_id = v_user;
+  return private.fair_json(v_user);
+end $$;
+
+create or replace function private.bet_amount(p_amount numeric) returns numeric
+language plpgsql immutable set search_path = '' as $$
+declare amt numeric := round(p_amount, 2);
+begin
+  if not (amt >= 0.1 and amt <= 1e9) then raise exception 'Enter a bet of at least $0.10.'; end if;
+  return amt;
+end $$;
+
+create or replace function private.fmt_mult(m numeric) returns text
+language sql immutable set search_path = '' as $$ select trim(trailing '.' from trim(trailing '0' from m::text)) || '×' $$;
+
+-- Dice ------------------------------------------------------------------------
+
+create or replace function public.play_dice(p_amount numeric, p_target numeric, p_over boolean) returns jsonb
+language plpgsql volatile security definer set search_path = '' as $$
+declare v_user uuid := private.uid(); pf public.portfolios; amt numeric := private.bet_amount(p_amount); t int; fs record;
+  v_roll int; chance int; mult numeric; win boolean; ret numeric;
+begin
+  perform private.rate_limit(v_user, 'dice', 150);
+  if p_target is null or round(p_target, 2) < 2 or round(p_target, 2) > 98 then raise exception 'Pick a target between 2 and 98.'; end if;
+  t := (round(p_target, 2) * 100)::int;
+  select * into pf from public.portfolios where user_id = v_user for update;
+  if amt > pf.cash then raise exception 'Not enough cash for this bet.'; end if;
+  select * into fs from private.fair_next(v_user);
+  v_roll := floor((private.fair_floats(fs.server_seed, fs.client_seed, fs.nonce, 1))[1] * 10001)::int;
+  chance := case when p_over then 10000 - t else t end;
+  mult := floor(99000000::numeric / chance) / 10000;
+  win := case when p_over then v_roll > t else v_roll < t end;
+  ret := case when win then round(amt * mult, 2) else 0 end;
+  update public.portfolios set cash = cash - amt where user_id = v_user;
+  perform private.game_round(v_user, pf.run, 'dice', amt, ret, format('Rolled %s · %s %s (%s)',
+    to_char(v_roll / 100.0, 'FM990.00'), case when p_over then 'over' else 'under' end, to_char(t / 100.0, 'FM990.00'), private.fmt_mult(mult)));
+  if win and mult >= 5 then
+    perform private.game_activity(v_user, 'dice', amt, ret - amt, format('rolled %s at %s', to_char(v_roll / 100.0, 'FM990.00'), private.fmt_mult(mult)));
+  end if;
+  return jsonb_build_object('roll', v_roll, 'win', win, 'multiplier', mult, 'payout', ret, 'nonce', fs.nonce,
+    'portfolio', private.portfolio_json(v_user));
+end $$;
+
+-- Mines -----------------------------------------------------------------------
+
+create or replace function private.mines_mult(p_mines int, p_gems int) returns numeric
+language plpgsql immutable set search_path = '' as $$
+declare num numeric := 99; den numeric := 100; i int;
+begin
+  if p_gems <= 0 then return 1; end if;
+  for i in 0..p_gems - 1 loop
+    num := num * (25 - i);
+    den := den * (25 - p_mines - i);
+  end loop;
+  return floor(num * 100 / den) / 100;
+end $$;
+
+create or replace function private.mines_place(p_floats float8[], p_mines int) returns int[]
+language plpgsql immutable set search_path = '' as $$
+declare tiles int[] := (select array_agg(x order by x) from generate_series(0, 24) x); ord int[] := '{}'; i int; j int;
+begin
+  for i in 0..23 loop
+    j := floor(p_floats[i + 1] * (25 - i))::int;
+    ord := ord || tiles[j + 1];
+    tiles := tiles[1:j] || tiles[j + 2:];
+  end loop;
+  ord := ord || tiles[1];
+  return (select array_agg(x order by x) from unnest(ord[1:p_mines]) x);
+end $$;
+
+/** What the player sees: mine positions only once the round is over. */
+create or replace function private.mines_view(s jsonb) returns jsonb
+language plpgsql immutable set search_path = '' as $$
+declare gems int; m int;
+begin
+  if s is null then return jsonb_build_object('phase', 'idle'); end if;
+  gems := jsonb_array_length(s -> 'revealed');
+  m := (s ->> 'mines')::int;
+  return jsonb_build_object(
+    'phase', s ->> 'phase', 'bet', (s ->> 'bet')::numeric, 'mines', m, 'revealed', s -> 'revealed', 'gems', gems,
+    'multiplier', private.mines_mult(m, gems),
+    'nextMultiplier', case when gems < 25 - m then private.mines_mult(m, gems + 1) end,
+    'payout', round((s ->> 'bet')::numeric * private.mines_mult(m, gems), 2),
+    'nonce', (s ->> 'nonce')::int,
+    'result', case when s ->> 'phase' = 'done' then (s -> 'result') || jsonb_build_object('positions', s -> 'positions') end);
+end $$;
+
+create or replace function private.mines_finish(p_user uuid, s jsonb, p_win boolean, p_hit int) returns jsonb
+language plpgsql volatile set search_path = '' as $$
+declare gems int := jsonb_array_length(s -> 'revealed'); m int := (s ->> 'mines')::int; bet numeric := (s ->> 'bet')::numeric;
+  mult numeric := case when p_win then private.mines_mult(m, gems) else 0 end; ret numeric := round(bet * mult, 2);
+begin
+  perform private.game_round(p_user, (s ->> 'run')::int, 'mines', bet, ret,
+    case when p_win then format('%s gem%s · %s mine%s (%s)', gems, case when gems = 1 then '' else 's' end, m, case when m = 1 then '' else 's' end, private.fmt_mult(mult))
+    else format('Mine on pick %s · %s mine%s', gems + 1, m, case when m = 1 then '' else 's' end) end);
+  if p_win and mult >= 2 then
+    perform private.game_activity(p_user, 'mines', bet, ret - bet, format('cashed out %s with %s mines', private.fmt_mult(mult), m));
+  end if;
+  return s || jsonb_build_object('phase', 'done', 'result', jsonb_build_object('win', p_win, 'hit', p_hit, 'multiplier', mult, 'payout', ret));
+end $$;
+
+create or replace function private.mines_begin(p_user uuid, p_amount numeric, p_mines int) returns jsonb
+language plpgsql volatile set search_path = '' as $$
+declare pf public.portfolios; amt numeric := private.bet_amount(p_amount); fs record;
+begin
+  if p_mines is null or p_mines < 1 or p_mines > 24 then raise exception 'Pick 1 to 24 mines.'; end if;
+  if private.round_active(p_user) then raise exception 'Finish the current round first.'; end if;
+  select * into pf from public.portfolios where user_id = p_user for update;
+  if amt > pf.cash then raise exception 'Not enough cash for this bet.'; end if;
+  update public.portfolios set cash = cash - amt where user_id = p_user;
+  select * into fs from private.fair_next(p_user);
+  return jsonb_build_object('phase', 'playing', 'bet', amt, 'mines', p_mines, 'revealed', '[]'::jsonb, 'run', pf.run, 'nonce', fs.nonce,
+    'positions', to_jsonb(private.mines_place(private.fair_floats(fs.server_seed, fs.client_seed, fs.nonce, 24), p_mines)));
+end $$;
+
+create or replace function private.mines_pick(p_user uuid, s jsonb, p_tile int) returns jsonb
+language plpgsql volatile set search_path = '' as $$
+begin
+  if p_tile is null or p_tile < 0 or p_tile > 24 then raise exception 'Pick a tile from 0 to 24.'; end if;
+  if s -> 'revealed' @> to_jsonb(p_tile) then raise exception 'That tile is already open.'; end if;
+  if s -> 'positions' @> to_jsonb(p_tile) then return private.mines_finish(p_user, s, false, p_tile); end if;
+  s := jsonb_set(s, '{revealed}', (s -> 'revealed') || to_jsonb(p_tile));
+  if jsonb_array_length(s -> 'revealed') = 25 - (s ->> 'mines')::int then return private.mines_finish(p_user, s, true, null); end if;
+  return s;
+end $$;
+
+create or replace function private.state_save(p_user uuid, p_game text, s jsonb) returns void
+language sql volatile set search_path = '' as $$
+  insert into public.game_states (user_id, game, state) values (p_user, p_game, s)
+  on conflict (user_id, game) do update set state = excluded.state, updated_at = now()
+$$;
+
+create or replace function private.state_load(p_user uuid, p_game text) returns jsonb
+language sql volatile set search_path = '' as $$
+  select state from public.game_states where user_id = p_user and game = p_game for update
+$$;
+
+create or replace function public.mines_state() returns jsonb
+language plpgsql volatile security definer set search_path = '' as $$
+begin
+  return private.mines_view(private.state_load(private.uid(), 'mines'));
+end $$;
+
+create or replace function public.mines_start(p_amount numeric, p_mines int) returns jsonb
+language plpgsql volatile security definer set search_path = '' as $$
+declare v_user uuid := private.uid(); s jsonb;
+begin
+  perform private.rate_limit(v_user, 'mines', 120);
+  s := private.mines_begin(v_user, p_amount, p_mines);
+  perform private.state_save(v_user, 'mines', s);
+  return jsonb_build_object('round', private.mines_view(s), 'portfolio', private.portfolio_json(v_user));
+end $$;
+
+create or replace function public.mines_reveal(p_tile int) returns jsonb
+language plpgsql volatile security definer set search_path = '' as $$
+declare v_user uuid := private.uid(); s jsonb;
+begin
+  perform private.rate_limit(v_user, 'step', 300);
+  perform 1 from public.portfolios where user_id = v_user for update;
+  s := private.state_load(v_user, 'mines');
+  if s is null or s ->> 'phase' <> 'playing' then raise exception 'Start a round first.'; end if;
+  s := private.mines_pick(v_user, s, p_tile);
+  perform private.state_save(v_user, 'mines', s);
+  return jsonb_build_object('round', private.mines_view(s), 'portfolio', private.portfolio_json(v_user));
+end $$;
+
+create or replace function public.mines_cashout() returns jsonb
+language plpgsql volatile security definer set search_path = '' as $$
+declare v_user uuid := private.uid(); s jsonb;
+begin
+  perform 1 from public.portfolios where user_id = v_user for update;
+  s := private.state_load(v_user, 'mines');
+  if s is null or s ->> 'phase' <> 'playing' then raise exception 'There is no round to cash out.'; end if;
+  if jsonb_array_length(s -> 'revealed') = 0 then raise exception 'Open at least one tile first.'; end if;
+  s := private.mines_finish(v_user, s, true, null);
+  perform private.state_save(v_user, 'mines', s);
+  return jsonb_build_object('round', private.mines_view(s), 'portfolio', private.portfolio_json(v_user));
+end $$;
+
+/** Auto play: opens the given tiles in order and cashes out if they are all safe. */
+create or replace function public.mines_auto(p_amount numeric, p_mines int, p_tiles int[]) returns jsonb
+language plpgsql volatile security definer set search_path = '' as $$
+declare v_user uuid := private.uid(); s jsonb; t int;
+begin
+  perform private.rate_limit(v_user, 'mines', 120);
+  if coalesce(array_length(p_tiles, 1), 0) < 1 or array_length(p_tiles, 1) > 25 - coalesce(p_mines, 1)
+    or (select count(distinct x) from unnest(p_tiles) x) <> array_length(p_tiles, 1) then
+    raise exception 'Pick between 1 and % different tiles.', 25 - coalesce(p_mines, 1);
+  end if;
+  s := private.mines_begin(v_user, p_amount, p_mines);
+  foreach t in array p_tiles loop
+    s := private.mines_pick(v_user, s, t);
+    exit when s ->> 'phase' = 'done';
+  end loop;
+  if s ->> 'phase' = 'playing' then s := private.mines_finish(v_user, s, true, null); end if;
+  perform private.state_save(v_user, 'mines', s);
+  return jsonb_build_object('round', private.mines_view(s), 'portfolio', private.portfolio_json(v_user));
+end $$;
+
+-- Chicken Cross ------------------------------------------------------------------
+
+create or replace function private.chicken_cfg(p_difficulty text, out lanes int, out num int, out den int)
+language plpgsql immutable set search_path = '' as $$
+begin
+  case p_difficulty
+    when 'easy' then lanes := 30; num := 24; den := 25;
+    when 'medium' then lanes := 25; num := 22; den := 25;
+    when 'hard' then lanes := 22; num := 4; den := 5;
+    when 'daredevil' then lanes := 18; num := 3; den := 5;
+    else raise exception 'Pick Easy, Medium, Hard or Daredevil.';
+  end case;
+end $$;
+
+create or replace function private.chicken_mult(p_difficulty text, p_lane int) returns numeric
+language plpgsql immutable set search_path = '' as $$
+declare c record; a numeric := 98; b numeric := 1; i int;
+begin
+  if p_lane <= 0 then return 1; end if;
+  select * into c from private.chicken_cfg(p_difficulty);
+  for i in 1..p_lane loop
+    a := a * c.den;
+    b := b * c.num;
+  end loop;
+  return floor(a / b) / 100;
+end $$;
+
+create or replace function private.chicken_view(s jsonb) returns jsonb
+language plpgsql immutable set search_path = '' as $$
+declare lane int; d text; c record;
+begin
+  if s is null then return jsonb_build_object('phase', 'idle'); end if;
+  lane := (s ->> 'lane')::int;
+  d := s ->> 'difficulty';
+  select * into c from private.chicken_cfg(d);
+  return jsonb_build_object(
+    'phase', s ->> 'phase', 'bet', (s ->> 'bet')::numeric, 'difficulty', d, 'lane', lane, 'lanes', c.lanes,
+    'multiplier', private.chicken_mult(d, lane),
+    'nextMultiplier', case when lane < c.lanes then private.chicken_mult(d, lane + 1) end,
+    'payout', round((s ->> 'bet')::numeric * private.chicken_mult(d, lane), 2),
+    'nonce', (s ->> 'nonce')::int,
+    'result', case when s ->> 'phase' = 'done' then s -> 'result' end);
+end $$;
+
+create or replace function private.chicken_finish(p_user uuid, s jsonb, p_win boolean) returns jsonb
+language plpgsql volatile set search_path = '' as $$
+declare lane int := (s ->> 'lane')::int; d text := s ->> 'difficulty'; bet numeric := (s ->> 'bet')::numeric;
+  mult numeric := case when p_win then private.chicken_mult(d, lane) else 0 end; ret numeric := round(bet * mult, 2);
+  label text := initcap(d);
+begin
+  perform private.game_round(p_user, (s ->> 'run')::int, 'chicken', bet, ret,
+    case when p_win then format('Lane %s · %s (%s)', lane, label, private.fmt_mult(mult))
+    else format('Hit on lane %s · %s', lane + 1, label) end);
+  if p_win and mult >= 2 then
+    perform private.game_activity(p_user, 'chicken', bet, ret - bet, format('crossed %s lanes on %s (%s)', lane, lower(label), private.fmt_mult(mult)));
+  end if;
+  return s || jsonb_build_object('phase', 'done', 'result', jsonb_build_object('win', p_win, 'lane', lane,
+    'hitLane', case when p_win then null else lane + 1 end, 'multiplier', mult, 'payout', ret, 'crashLane', s -> 'crash'));
+end $$;
+
+create or replace function private.chicken_begin(p_user uuid, p_amount numeric, p_difficulty text) returns jsonb
+language plpgsql volatile set search_path = '' as $$
+declare pf public.portfolios; amt numeric := private.bet_amount(p_amount); c record; fs record; f float8[]; crash int; i int;
+begin
+  select * into c from private.chicken_cfg(p_difficulty);
+  if private.round_active(p_user) then raise exception 'Finish the current round first.'; end if;
+  select * into pf from public.portfolios where user_id = p_user for update;
+  if amt > pf.cash then raise exception 'Not enough cash for this bet.'; end if;
+  update public.portfolios set cash = cash - amt where user_id = p_user;
+  select * into fs from private.fair_next(p_user);
+  f := private.fair_floats(fs.server_seed, fs.client_seed, fs.nonce, c.lanes);
+  for i in 1..c.lanes loop
+    if f[i] * c.den >= c.num then crash := i; exit; end if;
+  end loop;
+  return jsonb_build_object('phase', 'playing', 'bet', amt, 'difficulty', p_difficulty, 'lane', 0, 'run', pf.run,
+    'nonce', fs.nonce, 'crash', crash);
+end $$;
+
+create or replace function private.chicken_hop(p_user uuid, s jsonb) returns jsonb
+language plpgsql volatile set search_path = '' as $$
+declare nxt int := (s ->> 'lane')::int + 1; c record;
+begin
+  select * into c from private.chicken_cfg(s ->> 'difficulty');
+  if (s ->> 'crash')::int = nxt then return private.chicken_finish(p_user, s, false); end if;
+  s := jsonb_set(s, '{lane}', to_jsonb(nxt));
+  if nxt >= c.lanes then return private.chicken_finish(p_user, s, true); end if;
+  return s;
+end $$;
+
+create or replace function public.chicken_state() returns jsonb
+language plpgsql volatile security definer set search_path = '' as $$
+begin
+  return private.chicken_view(private.state_load(private.uid(), 'chicken'));
+end $$;
+
+create or replace function public.chicken_start(p_amount numeric, p_difficulty text) returns jsonb
+language plpgsql volatile security definer set search_path = '' as $$
+declare v_user uuid := private.uid(); s jsonb;
+begin
+  perform private.rate_limit(v_user, 'chicken', 120);
+  s := private.chicken_begin(v_user, p_amount, p_difficulty);
+  perform private.state_save(v_user, 'chicken', s);
+  return jsonb_build_object('round', private.chicken_view(s), 'portfolio', private.portfolio_json(v_user));
+end $$;
+
+create or replace function public.chicken_step() returns jsonb
+language plpgsql volatile security definer set search_path = '' as $$
+declare v_user uuid := private.uid(); s jsonb;
+begin
+  perform private.rate_limit(v_user, 'step', 300);
+  perform 1 from public.portfolios where user_id = v_user for update;
+  s := private.state_load(v_user, 'chicken');
+  if s is null or s ->> 'phase' <> 'playing' then raise exception 'Start a round first.'; end if;
+  s := private.chicken_hop(v_user, s);
+  perform private.state_save(v_user, 'chicken', s);
+  return jsonb_build_object('round', private.chicken_view(s), 'portfolio', private.portfolio_json(v_user));
+end $$;
+
+create or replace function public.chicken_cashout() returns jsonb
+language plpgsql volatile security definer set search_path = '' as $$
+declare v_user uuid := private.uid(); s jsonb;
+begin
+  perform 1 from public.portfolios where user_id = v_user for update;
+  s := private.state_load(v_user, 'chicken');
+  if s is null or s ->> 'phase' <> 'playing' then raise exception 'There is no round to cash out.'; end if;
+  if (s ->> 'lane')::int = 0 then raise exception 'Cross at least one lane first.'; end if;
+  s := private.chicken_finish(v_user, s, true);
+  perform private.state_save(v_user, 'chicken', s);
+  return jsonb_build_object('round', private.chicken_view(s), 'portfolio', private.portfolio_json(v_user));
+end $$;
+
+/** Auto play: hops until the target lane (cashing out there) or until hit. */
+create or replace function public.chicken_auto(p_amount numeric, p_difficulty text, p_target int) returns jsonb
+language plpgsql volatile security definer set search_path = '' as $$
+declare v_user uuid := private.uid(); s jsonb; c record;
+begin
+  perform private.rate_limit(v_user, 'chicken', 120);
+  select * into c from private.chicken_cfg(p_difficulty);
+  if p_target is null or p_target < 1 or p_target > c.lanes then raise exception 'Pick a lane from 1 to %.', c.lanes; end if;
+  s := private.chicken_begin(v_user, p_amount, p_difficulty);
+  while s ->> 'phase' = 'playing' and (s ->> 'lane')::int < p_target loop
+    s := private.chicken_hop(v_user, s);
+  end loop;
+  if s ->> 'phase' = 'playing' then s := private.chicken_finish(v_user, s, true); end if;
+  perform private.state_save(v_user, 'chicken', s);
+  return jsonb_build_object('round', private.chicken_view(s), 'portfolio', private.portfolio_json(v_user));
+end $$;
+
+-- ---------------------------------------------------------------------------
 -- Who may call what
 -- ---------------------------------------------------------------------------
 
@@ -1272,7 +1732,20 @@ grant execute on function
   public.play_plinko(numeric, int, text, int),
   public.blackjack_state(),
   public.blackjack_deal(numeric),
-  public.blackjack_act(text)
+  public.blackjack_act(text),
+  public.fair_state(),
+  public.fair_rotate(text),
+  public.play_dice(numeric, numeric, boolean),
+  public.mines_state(),
+  public.mines_start(numeric, int),
+  public.mines_reveal(int),
+  public.mines_cashout(),
+  public.mines_auto(numeric, int, int[]),
+  public.chicken_state(),
+  public.chicken_start(numeric, text),
+  public.chicken_step(),
+  public.chicken_cashout(),
+  public.chicken_auto(numeric, text, int)
 to authenticated;
 
 do $$ begin

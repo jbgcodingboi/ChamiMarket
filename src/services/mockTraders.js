@@ -26,7 +26,7 @@ export const PRO_TRADERS = [
 
 export const PRO_STARTING_EQUITY = 100000
 
-const SIM_GAMES = ['roulette', 'blackjack', 'plinko']
+const SIM_GAMES = ['roulette', 'blackjack', 'plinko', 'dice', 'mines', 'chicken']
 
 /**
  * Seeded game stats for a simulated pro, so the Games board has company.
