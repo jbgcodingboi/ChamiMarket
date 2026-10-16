@@ -11,6 +11,7 @@ import Tabs from '../ui/Tabs.jsx'
 import MarketAvatar from './MarketAvatar.jsx'
 import MobileTradeBar from './MobileTradeBar.jsx'
 import OrderBook from './OrderBook.jsx'
+import ClosesIn from './ClosesIn.jsx'
 import OutcomeBadge from './OutcomeBadge.jsx'
 import PositionSummary from './PositionSummary.jsx'
 import PriceChart from './PriceChart.jsx'
@@ -60,7 +61,8 @@ export default function MarketDetail({ market, side, onSideChange }) {
               <p className="text-xs text-muted">
                 {categoryLabel[market.category]} ·{' '}
                 {market.source === 'house' ? 'House odds' : `${formatCompactCurrency(market.volume)} Vol.`} ·{' '}
-                {market.source === 'house' ? 'Starts' : 'Ends'} {formatDate(market.endDate)}
+                {market.source === 'house' ? 'Closes' : 'Ends'} {formatDate(market.endDate)}
+                <ClosesIn endDate={market.endDate} className="ml-2" />
                 {market.source === 'mock' && <span className="ml-2 rounded bg-surface-3 px-1.5 py-0.5">Demo market</span>}
               </p>
               <h1 className="mt-1 text-xl leading-tight font-bold text-balance sm:text-2xl">{market.title}</h1>

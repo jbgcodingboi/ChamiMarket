@@ -7,6 +7,8 @@
  *    recently closed markets (Gamma API)
  *  - public/data/chaminade.json: Chaminade High School house markets and game
  *    results (the school's SIDEARM athletics calendar feed)
+ *  - public/data/quick.json: daily closes for the stock Quick markets (Yahoo
+ *    Finance chart API, which doesn't allow browser requests)
  *
  * Never fails the build: a source that errors leaves no file behind and the
  * app falls back to its other data sources.
@@ -14,10 +16,12 @@
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { buildMarkets, buildResults, CALENDAR_ENDPOINT, calendarMonths, parseCalendar } from '../src/services/chaminade.js'
 import { fetchCatalog, fetchRecentResolutions } from '../src/services/gamma.js'
+import { parseYahooChart, STOCKS } from '../src/services/quick/stocks.js'
 
 const OUT_DIR = new URL('../public/data/', import.meta.url)
 const SNAPSHOT_FILE = new URL('snapshot.json', OUT_DIR)
 const CHAMINADE_FILE = new URL('chaminade.json', OUT_DIR)
+const QUICK_FILE = new URL('quick.json', OUT_DIR)
 const USER_AGENT = 'Mozilla/5.0 (compatible; ChamiMarketSnapshot/1.0; +https://github.com/jbgcodingboi/ChamiMarket)'
 
 await mkdir(OUT_DIR, { recursive: true })
@@ -61,4 +65,23 @@ async function chaminade() {
   }
 }
 
-await Promise.all([polymarket(), chaminade()])
+async function stocks() {
+  try {
+    const out = {}
+    for (const s of STOCKS) {
+      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${s.symbol}?interval=1d&range=10d`
+      const res = await fetch(url, { headers: { Accept: 'application/json', 'User-Agent': USER_AGENT } })
+      if (!res.ok) throw new Error(`HTTP ${res.status} for ${s.symbol}`)
+      out[s.symbol] = parseYahooChart(await res.json(), now)
+      if (!out[s.symbol].length) throw new Error(`no closes for ${s.symbol}`)
+    }
+    await writeFile(QUICK_FILE, JSON.stringify({ version: 1, generatedAt: now, stocks: out }))
+    const last = (rows) => rows[rows.length - 1]
+    console.log(`quick: ${STOCKS.map((s) => `${s.symbol} ${last(out[s.symbol]).date} ${last(out[s.symbol]).close}${last(out[s.symbol]).final ? '' : ' (intraday)'}`).join(', ')}`)
+  } catch (err) {
+    await rm(QUICK_FILE, { force: true })
+    console.warn(`quick skipped: ${err.message}`)
+  }
+}
+
+await Promise.all([polymarket(), chaminade(), stocks()])
