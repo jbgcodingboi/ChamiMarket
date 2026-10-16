@@ -14,7 +14,7 @@ import { own } from '../utils/safe.js'
 import { isPlainObject, readJSON, removeKey, writeJSON } from '../utils/storage.js'
 import { hasEnded } from '../utils/curation.js'
 import { applyResolutions, executeBuy, executeSell, TradeError } from '../utils/trading.js'
-import { displayNameFor, isEmail, validateIdentifier, validatePassword } from '../utils/validation.js'
+import { displayNameFor, isEmail, isReservedName, validateIdentifier, validatePassword } from '../utils/validation.js'
 import { BACKEND_ENABLED, usernameFor } from '../services/backend/config.js'
 import * as backend from '../services/backend/api.js'
 import { useFeedStore } from './feedStore.js'
@@ -177,6 +177,7 @@ export const useAccountStore = create((set, get) => ({
       )
     }
     const username = displayNameFor(identifier)
+    if (isReservedName(username)) throw new AuthError(`The name "${username}" is reserved. Sign up with a different username.`, 'identifier')
     if (accounts.some((a) => a.username.toLowerCase() === username.toLowerCase())) {
       throw new AuthError('That display name is already in use. Try a different username or email.', 'identifier')
     }

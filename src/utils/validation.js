@@ -1,7 +1,20 @@
+import { CASUAL_HANDLES, PRO_TRADERS } from '../services/mockTraders.js'
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
 const USERNAME_RE = /^[A-Za-z0-9_]{3,20}$/
 
 export const isEmail = (value) => value.includes('@')
+
+const RESERVED = new Set([
+  ...PRO_TRADERS.map((t) => t.name.toLowerCase()),
+  ...CASUAL_HANDLES.map((h) => h.toLowerCase()),
+  'mod', 'support', 'staff', 'system', 'sim', 'root', 'owner', 'help', 'null', 'undefined',
+])
+
+/**
+ * Names nobody can sign up with: the simulated players and anything that
+ * looks official. The server keeps the same list (private.is_reserved_name).
+ */
+export const isReservedName = (name) => RESERVED.has(name.trim().toLowerCase()) || /admin|moderator|official|chaminade|chamimarket/i.test(name)
 
 export function validateIdentifier(raw) {
   const value = raw.trim()
@@ -12,6 +25,7 @@ export function validateIdentifier(raw) {
   }
   if (value.length < 3) return 'Username must be at least 3 characters.'
   if (!USERNAME_RE.test(value)) return 'Usernames use 3 to 20 letters, numbers or underscores.'
+  if (isReservedName(value)) return 'That username is reserved. Pick another.'
   return null
 }
 

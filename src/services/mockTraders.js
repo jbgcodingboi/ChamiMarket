@@ -52,7 +52,7 @@ export function spreadPick(rows, n) {
   return Array.from({ length: n }, (_, i) => rows[Math.round((i * (rows.length - 1)) / (n - 1))])
 }
 
-const CASUAL_HANDLES = [
+export const CASUAL_HANDLES = [
   'WhaleTrader99', 'quietkelly', 'dataDan', 'mapleleaf_mo', 'contrarian_cat', 'nightowl88',
   'sixfigurespreads', 'lucky_lena', 'statsgeek', 'benchwarmer', 'coinflipcarl', 'forecastfiona',
   'longshotlou', 'pivotpete', 'marginmaya', 'yesman_jay', 'nottoday_nia', 'gamedaygabe',
