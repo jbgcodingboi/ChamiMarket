@@ -4,9 +4,11 @@
  *
  * A market is listed only when it:
  *  - has an end date that is still in the future and no later than June 1, 2027
- *  - is priced between 6% and 95% (lopsided markets are hidden)
+ *  - is not esports
  *  - for soccer: belongs to a top European league, the Champions League or the Ballon d'Or
  *  - for politics: is not a tweet/mention/meme market and is relevant to a US audience
+ *  - for long-shot prone markets only (ceasefires, aliens, political agreements and
+ *    championship-style futures): is priced between 6% and 95%
  */
 export const END_DATE_CUTOFF = Date.parse('2027-06-02T00:00:00Z')
 export const MIN_PROBABILITY = 0.06
@@ -57,7 +59,7 @@ export function isTopSoccer(m) {
 // Politics ----------------------------------------------------------------
 
 const JUNK_POLITICS =
-  /(\b(tweets?|tweeted|retweets?|truth social|posts?|posted|mentions?|mentioned|say|says|wears?|elon|musk|kardashian|kanye|taylor swift|mrbeast|diddy|jesus|aliens?|ufos?|followers|subscribers)\b|# ?of\b|how many times|number of times)/
+  /(\b(tweets?|tweeted|retweets?|truth social|posts?|posted|mentions?|mentioned|say|says|wears?|elon|musk|kardashian|kanye|taylor swift|mrbeast|diddy|jesus|followers|subscribers)\b|# ?of\b|how many times|number of times)/
 
 const MAJOR_INTERNATIONAL =
   /\b(israel|israeli|netanyahu|gaza|hamas|hezbollah|idf|west bank|iran|iranian|khamenei|russia|russian|putin|kremlin|ukraine|ukrainian|zelensky|crimea|china|chinese|xi jinping|beijing|taiwan|north korea|north korean|kim jong|nato|united nations|united kingdom|uk|britain|british|starmer|canada|canadian|carney|mexico|mexican|sheinbaum|venezuela|venezuelan|maduro|pope|vatican|syria|lebanon|houthis?|yemen|saudi)\b/
@@ -101,6 +103,45 @@ export function isLowRelevanceInternational(m) {
   return !(MAJOR_INTERNATIONAL.test(text) || US_CONTEXT.test(text) || /\bU\.?S\.?\b/.test(raw))
 }
 
+// Esports -------------------------------------------------------------------
+
+const ESPORTS_TAGS = ['esports', 'e-sports', 'league-of-legends', 'league of legends', 'counter-strike', 'cs2',
+  'csgo', 'dota', 'dota-2', 'dota 2', 'valorant', 'overwatch', 'call-of-duty', 'call of duty', 'rocket-league',
+  'rocket league', 'starcraft', 'rainbow-six', 'fortnite', 'pubg', 'mobile-legends', 'honor-of-kings']
+
+const ESPORTS_TEXT =
+  /(\be-?sports?\b|league of legends|^lol:|\blol (worlds|msi)\b|\b(lck|lpl|lec|lcs)\b|counter-?strike|\bcs ?2\b|\bcs:?go\b|\bdota\b|valorant|\bvct\b|overwatch|call of duty|rocket league|fortnite|starcraft|rainbow six|\bpubg\b|mobile legends|honor of kings|\biem\b|\besl (pro|one)\b|\bblast (premier|major)\b|\bpgl\b|\(bo[1357]\))/
+
+export function isEsports(m) {
+  return hasAny(tagSet(m), ESPORTS_TAGS) || ESPORTS_TEXT.test(`${m.title} ${m.eventTitle ?? ''}`.toLowerCase())
+}
+
+// Odds -----------------------------------------------------------------------
+
+const CEASEFIRE = /\b(cease-?fire|truce|armistice)\b/
+const ALIENS = /\b(aliens?|ufos?|uaps?|extraterrestrial)\b/
+const AGREEMENT = /\b(agreements?|deals?|accords?|treaty|treaties|normaliz\w*|normalis\w*|peace (talks|plan|summit))\b/
+const COMPETITION =
+  /\b(championships?|champions?|titles?|finals?|super bowl|world series|stanley cup|cup|league|liga|serie a|bundesliga|ligue 1|ballon d'?or|mvp|awards?|trophy|pennant|division|conference|playoffs?|masters|open|grand prix|tournament|series)\b/
+
+/** Championship-style futures, e.g. "Will the Lakers win the 2027 NBA Championship?" */
+export function isChampionshipFuture(m) {
+  if (m.category !== 'sports') return false
+  const text = m.title.toLowerCase()
+  return /\bwins?\b/.test(text) && COMPETITION.test(text) && !/\bvs\.?\b/.test(text)
+}
+
+/**
+ * Markets where long shots pile up and add clutter. Only these are held to
+ * the 6% to 95% odds range; everything else is listed at any price.
+ */
+export function isOddsFiltered(m) {
+  const text = `${m.title} ${m.eventTitle ?? ''}`.toLowerCase()
+  if (CEASEFIRE.test(text) || ALIENS.test(text)) return true
+  if (m.category === 'politics' && AGREEMENT.test(text)) return true
+  return isChampionshipFuture(m)
+}
+
 // Shared ------------------------------------------------------------------
 
 const endTime = (m) => (m.endDate ? Date.parse(m.endDate) : NaN)
@@ -117,12 +158,13 @@ export function exclusionReason(m, now = Date.now()) {
   if (!Number.isFinite(end)) return 'no-end-date'
   if (end <= now) return 'ended'
   if (end >= END_DATE_CUTOFF) return 'ends-after-cutoff'
-  if (m.yesPrice < MIN_PROBABILITY || m.yesPrice > MAX_PROBABILITY) return 'lopsided-odds'
+  if (m.category === 'sports' && isEsports(m)) return 'esports'
   if (m.category === 'sports' && isSoccer(m) && !isTopSoccer(m)) return 'minor-soccer'
   if (m.category === 'politics') {
     if (isJunkPolitics(m)) return 'junk-politics'
     if (isLowRelevanceInternational(m)) return 'low-relevance-international'
   }
+  if (isOddsFiltered(m) && (m.yesPrice < MIN_PROBABILITY || m.yesPrice > MAX_PROBABILITY)) return 'lopsided-odds'
   return null
 }
 

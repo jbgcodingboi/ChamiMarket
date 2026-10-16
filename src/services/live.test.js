@@ -130,7 +130,9 @@ describe('live data flow', () => {
         return jsonResponse([
           event('e3', 'Inter Miami vs. LA Galaxy', [rawMarket({ id: '31', question: 'Inter Miami vs. LA Galaxy' })], [{ slug: 'soccer', label: 'Soccer' }, { slug: 'mls', label: 'MLS' }]),
           event('e4', 'NBA Finals', [rawMarket({ id: '41', question: 'Will the Thunder win the 2027 NBA Finals?', endDate: '2027-06-20T00:00:00Z' })]),
-          event('e5', 'Long shot', [rawMarket({ id: '51', question: 'Will the Jets go 17-0?', outcomePrices: '["0.01","0.99"]' })]),
+          event('e5', 'Long shot', [rawMarket({ id: '51', question: 'Will the Jets win Super Bowl LXI?', outcomePrices: '["0.01","0.99"]' })]),
+          event('e6', 'Worlds', [rawMarket({ id: '61', question: 'LoL: T1 vs. Gen.G (BO5)' })], [{ slug: 'esports', label: 'Esports' }]),
+          event('e7', 'Long shot game', [rawMarket({ id: '71', question: 'Will the Jets go 17-0?', outcomePrices: '["0.01","0.99"]' })]),
           event('e1', 'Chiefs vs. Bills', [rawMarket({ id: '11', question: 'Chiefs vs. Bills', outcomes: '["Chiefs","Bills"]', volumeNum: 900 })]),
         ])
       if (u.pathname === '/events' && u.searchParams.get('tag_id') === '2')
@@ -146,8 +148,9 @@ describe('live data flow', () => {
     const s = useMarketStore.getState()
     expect(s.source).toBe('live')
     expect(s.tagIds).toEqual({ sports: '1', politics: '2' })
-    // 14: 4th market of one event; 31: MLS; 41: ends after June 1 2027; 51: 1% odds; 78: tweets; 79: Brazil
-    expect([...s.order].sort()).toEqual(['11', '12', '13', '21', '77'])
+    // 14: 4th market of one event; 31: MLS; 41: ends after June 1 2027; 51: 1% championship long shot;
+    // 61: esports; 78: tweets; 79: Brazil. 71 is a 1% market but not a filtered type, so it stays.
+    expect([...s.order].sort()).toEqual(['11', '12', '13', '21', '71', '77'])
     expect(s.markets['11'].league).toBe('nfl')
     expect(s.markets['11'].labels).toEqual({ yes: 'Chiefs', no: 'Bills' })
     expect(s.markets['21'].league).toBe('epl')

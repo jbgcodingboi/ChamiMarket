@@ -109,11 +109,13 @@ the shares you hold. Orders execute at the displayed outcome price (there is no 
 All of these live in `src/utils/curation.js` (with tests) and apply to live data, the snapshot and demo data alike.
 
 - **Dates**: markets whose end date has passed are hidden, as are markets ending after June 1, 2027.
-- **Odds**: only markets priced between 6% and 95% are listed; lopsided markets are hidden.
-- **Sports**: every sport is kept (NFL, MLB, NBA, NHL, college, tennis, UFC, golf, F1 and so on), except that
-  soccer is limited to the Premier League, La Liga, Serie A, Bundesliga, Ligue 1, the Champions League and the
-  Ballon d'Or. MLS, other domestic leagues, cups, women's and youth competitions, international qualifiers and
-  other trophies are hidden.
+- **Odds**: markets are listed at any price, except ceasefire, alien and political-agreement markets and
+  championship-style futures ("Will … win the 2027 Championship?"), which must be priced between 6% and 95%.
+  Those are where 1% long shots pile up.
+- **Sports**: every sport is kept (NFL, MLB, NBA, NHL, college, tennis, UFC, golf, F1 and so on) except esports,
+  which are hidden. Soccer is limited to the Premier League, La Liga, Serie A, Bundesliga, Ligue 1, the
+  Champions League and the Ballon d'Or; MLS, other domestic leagues, cups, women's and youth competitions,
+  international qualifiers and other trophies are hidden.
 - **Politics**: tweet-count, mention, "will X say" and meme markets (including Elon Musk markets) are hidden, as
   are foreign elections and domestic politics most Americans don't follow (Brazil, Japan, Poland and so on).
   Israel, Iran, Russia and Ukraine, China and Taiwan, North Korea, NATO, the UK, Canada, Mexico, Venezuela, the

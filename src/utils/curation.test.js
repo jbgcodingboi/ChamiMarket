@@ -27,11 +27,27 @@ describe('dates and odds', () => {
     expect(reason({ endDate: '2027-06-02T00:00:00Z' })).toBe('ends-after-cutoff')
     expect(reason({ endDate: '2027-06-20T00:00:00Z' })).toBe('ends-after-cutoff')
   })
-  it('keeps odds between 6% and 95% only', () => {
-    expect(reason({ yesPrice: 0.06 })).toBeNull()
-    expect(reason({ yesPrice: 0.95 })).toBeNull()
-    expect(reason({ yesPrice: 0.059 })).toBe('lopsided-odds')
-    expect(reason({ yesPrice: 0.951 })).toBe('lopsided-odds')
+  it('lists ordinary markets at any price', () => {
+    expect(reason({ title: 'Chiefs vs. Bills', yesPrice: 0.97 })).toBeNull()
+    expect(reason({ title: 'Will the Jets go 17-0?', yesPrice: 0.01 })).toBeNull()
+    expect(reason({ title: 'Will Democrats win the House?', category: 'politics', yesPrice: 0.99 })).toBeNull()
+  })
+  it('holds ceasefire, alien, agreement and championship markets to 6%-95%', () => {
+    const cases = [
+      { title: 'Russia x Ukraine ceasefire by March 31?', category: 'politics' },
+      { title: 'Will the US confirm that aliens exist in 2026?', category: 'politics' },
+      { title: 'US x China trade deal by December 31?', category: 'politics' },
+      { title: 'Israel and Saudi Arabia normalize relations?', category: 'politics' },
+      { title: 'Will the Chiefs win Super Bowl LXI?' },
+      { title: 'Will Ohio State win the 2027 CFP National Championship?' },
+      { title: 'Will Arsenal win the Premier League?' },
+    ]
+    for (const c of cases) {
+      expect(reason({ ...c, yesPrice: 0.03 }), c.title).toBe('lopsided-odds')
+      expect(reason({ ...c, yesPrice: 0.97 }), c.title).toBe('lopsided-odds')
+      expect(reason({ ...c, yesPrice: 0.06 }), c.title).toBeNull()
+      expect(reason({ ...c, yesPrice: 0.95 }), c.title).toBeNull()
+    }
   })
 })
 
@@ -59,6 +75,15 @@ describe('sports', () => {
     expect(reason({ title: "Women's Champions League: Lyon vs. Barcelona" })).toBe('minor-soccer')
     expect(reason({ title: '2. Bundesliga: Hamburg vs. Schalke' })).toBe('minor-soccer')
     expect(reason({ title: 'Will Italy qualify for the FIFA World Cup?' })).toBe('minor-soccer')
+  })
+})
+
+describe('esports', () => {
+  it('removes esports', () => {
+    expect(reason({ title: 'LoL: T1 vs. Gen.G (BO5)' })).toBe('esports')
+    expect(reason({ title: 'Counter-Strike: Vitality vs. NAVI' })).toBe('esports')
+    expect(reason({ title: 'Will Team Spirit win The International (Dota 2)?' })).toBe('esports')
+    expect(reason({ title: 'Sentinels vs. Fnatic', tags: ['esports', 'valorant'] })).toBe('esports')
   })
 })
 
@@ -93,7 +118,11 @@ describe('politics', () => {
 
 describe('curate', () => {
   it('filters a list down to listable markets', () => {
-    const list = [base({ id: 'a' }), base({ id: 'b', yesPrice: 0.99 }), base({ id: 'c', endDate: '2026-01-01T00:00:00Z' })]
+    const list = [
+      base({ id: 'a' }),
+      base({ id: 'b', title: 'Will the Jets win the Super Bowl?', yesPrice: 0.01 }),
+      base({ id: 'c', endDate: '2026-01-01T00:00:00Z' }),
+    ]
     expect(curate(list, NOW).map((m) => m.id)).toEqual(['a'])
   })
 })
