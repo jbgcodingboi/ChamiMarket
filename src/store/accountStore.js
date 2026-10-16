@@ -221,6 +221,32 @@ export const useAccountStore = create((set, get) => ({
     return { user: publicUser(account), settled }
   },
 
+  /**
+   * Permanently deletes the signed-in account after checking its password:
+   * the portfolio, history, game state and feed entries go with it, so the
+   * player also leaves the leaderboard.
+   */
+  async deleteAccount({ password }) {
+    const { user } = get()
+    if (!user) throw new AuthError('Log in first.', 'password')
+    if (!password) throw new AuthError('Enter your password.', 'password')
+    if (BACKEND_ENABLED) {
+      await backend.deleteAccount(password)
+      seenSettlements = null
+      set({ user: null, portfolio: null })
+      return
+    }
+    const account = readAccounts().find((a) => a.id === user.id)
+    if (!account || !(await verifyPassword(password, account))) throw new AuthError('That password is not right.', 'password')
+    const rest = readAccounts().filter((a) => a.id !== user.id)
+    writeJSON(ACCOUNTS_KEY, rest)
+    removeKey(portfolioKey(user.id))
+    for (const k of ['fair', 'mines', 'chicken']) removeKey(`games:${user.id}:${k}`)
+    useFeedStore.getState().removeUser(user.username)
+    removeKey(SESSION_KEY)
+    set({ accounts: rest, user: null, portfolio: null })
+  },
+
   logOut() {
     if (BACKEND_ENABLED) {
       backend.logOut()

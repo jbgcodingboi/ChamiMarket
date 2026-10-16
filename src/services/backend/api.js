@@ -102,6 +102,15 @@ export async function resetPassword({ identifier, code, password }) {
   return res.code
 }
 
+/** Deletes the signed-in account and all of its data on the server, then signs out here. */
+export async function deleteAccount(password) {
+  const res = await rpc('delete_account', { p_password: password })
+  if (res?.error) throw new BackendError(res.error, 'password')
+  const sb = await client()
+  // The account is gone on the server, so only the local session needs clearing.
+  await sb.auth.signOut({ scope: 'local' }).catch(() => {})
+}
+
 // Portfolio and trading --------------------------------------------------------
 
 export const getPortfolio = () => rpc('get_portfolio')

@@ -397,4 +397,27 @@ reset role;
 select pg_temp.ok((select encrypted_password = extensions.crypt('brand new password', encrypted_password) from auth.users where id = :'bob'),
   'the locked attempt did not change the password');
 
+-- Deleting an account ----------------------------------------------------------
+select jsonb_array_length(public.leaderboard()) as players_before \gset
+set role authenticated;
+select set_config('request.jwt.claim.sub', :'bob', false);
+select pg_temp.ok(public.delete_account('wrong password') ->> 'error' like '%not right%', 'deleting needs the right password');
+reset role;
+select pg_temp.ok(exists (select 1 from public.profiles where id = :'bob'), 'a wrong password deletes nothing');
+set role authenticated;
+select pg_temp.ok((public.delete_account('brand new password') ->> 'deleted')::boolean, 'the right password deletes the account');
+reset role;
+select pg_temp.ok(not exists (select 1 from auth.users where id = :'bob')
+  and not exists (select 1 from public.profiles where id = :'bob')
+  and not exists (select 1 from public.portfolios where user_id = :'bob')
+  and not exists (select 1 from public.history where user_id = :'bob')
+  and not exists (select 1 from public.positions where user_id = :'bob')
+  and not exists (select 1 from public.activity where user_id = :'bob')
+  and not exists (select 1 from public.recovery_codes where user_id = :'bob')
+  and not exists (select 1 from private.rate_limits where user_id = :'bob'), 'every row tied to the account is gone');
+select pg_temp.ok(jsonb_array_length(public.leaderboard()) = :players_before - 1
+  and not exists (select 1 from jsonb_array_elements(public.leaderboard()) r where r ->> 'name' = 'bob'), 'the player leaves the leaderboard');
+select pg_temp.ok(exists (select 1 from public.portfolios where user_id = :'alice'), 'other players are untouched');
+select pg_temp.ok(public.username_available('bob'), 'the username is free again');
+
 \echo 'all database tests passed'

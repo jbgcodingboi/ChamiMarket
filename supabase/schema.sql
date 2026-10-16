@@ -680,6 +680,25 @@ begin
   return private.portfolio_json(v_user);
 end $$;
 
+/**
+ * Deletes the caller's account for good once the password checks out:
+ * profile, portfolio, positions, history, game rounds and state, seeds,
+ * recovery codes, snapshots and feed entries all go with it (they cascade
+ * from auth.users). A wrong password comes back as {error}, not a raise.
+ */
+create or replace function public.delete_account(p_password text) returns jsonb
+language plpgsql volatile security definer set search_path = '' as $$
+declare v_user uuid := private.uid(); v_ok boolean;
+begin
+  perform private.rate_limit(v_user, 'delete', 5);
+  select u.encrypted_password is not null and u.encrypted_password = extensions.crypt(coalesce(p_password, ''), u.encrypted_password)
+    into v_ok from auth.users u where u.id = v_user;
+  if not coalesce(v_ok, false) then return jsonb_build_object('error', 'That password is not right.'); end if;
+  delete from private.rate_limits where user_id = v_user;
+  delete from auth.users where id = v_user;
+  return jsonb_build_object('deleted', true);
+end $$;
+
 /** Pays out every holder of a resolved market. Returns how many positions settled. */
 create or replace function private.settle_market(p_market text, p_outcome text) returns int
 language plpgsql volatile set search_path = '' as $$
@@ -1731,6 +1750,7 @@ grant execute on function
   public.buy(text, text, numeric, numeric),
   public.sell(text, text, numeric, numeric),
   public.reset_balance(),
+  public.delete_account(text),
   public.check_market(text),
   public.play_roulette(jsonb),
   public.play_plinko(numeric, int, text, int),
