@@ -235,24 +235,22 @@ export const useAccountStore = create((set, get) => ({
   },
 
   /**
-   * Permanently deletes the signed-in account after checking its password:
-   * the portfolio, history, game state and feed entries go with it, so the
-   * player also leaves the leaderboard.
+   * Permanently deletes the signed-in account once the player has typed
+   * DELETE: the portfolio, history, game state and feed entries go with it,
+   * so the player also leaves the leaderboard.
    */
-  async deleteAccount({ password }) {
+  async deleteAccount({ confirm }) {
     const { user } = get()
-    if (!user) throw new AuthError('Log in first.', 'password')
-    if (!password) throw new AuthError('Enter your password.', 'password')
+    if (!user) throw new AuthError('Log in first.', 'confirm')
+    if (confirm?.trim().toUpperCase() !== 'DELETE') throw new AuthError('Type DELETE to confirm.', 'confirm')
     if (BACKEND_ENABLED) {
-      await backend.deleteAccount(password)
+      await backend.deleteAccount(confirm.trim().toUpperCase())
       sessionEpoch += 1
       seenSettlements = null
       closeAccountDialogs()
       set({ user: null, portfolio: null })
       return
     }
-    const account = readAccounts().find((a) => a.id === user.id)
-    if (!account || !(await verifyPassword(password, account))) throw new AuthError('That password is not right.', 'password')
     const rest = readAccounts().filter((a) => a.id !== user.id)
     writeJSON(ACCOUNTS_KEY, rest)
     removeKey(portfolioKey(user.id))
