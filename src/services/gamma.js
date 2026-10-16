@@ -6,7 +6,7 @@ import {
   SPORTS_MARKET_LIMIT,
   TAGGED_CATEGORIES,
 } from '../config.js'
-import { curate, END_DATE_CUTOFF, TOP_SOCCER_LEAGUES } from '../utils/curation.js'
+import { curate, endDateCutoff, TOP_SOCCER_LEAGUES } from '../utils/curation.js'
 import { isSafeKey } from '../utils/safe.js'
 import { fetchJson, HttpError } from './http.js'
 import { isListable, normalizeGammaMarket, toNumber } from './normalize.js'
@@ -77,7 +77,7 @@ function eventsUrl(params, now, withDates) {
   })
   if (withDates) {
     query.set('end_date_min', new Date(Math.floor(now / 60000) * 60000).toISOString())
-    query.set('end_date_max', new Date(END_DATE_CUTOFF).toISOString())
+    query.set('end_date_max', new Date(endDateCutoff(now)).toISOString())
   }
   return `${GAMMA_BASE}/events?${query}`
 }

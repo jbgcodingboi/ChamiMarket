@@ -174,7 +174,7 @@ export default function AppEffects() {
     stops.push(
       backend.onAuthChange((event, user) => {
         const account = useAccountStore.getState()
-        if (event === 'SIGNED_OUT') useAccountStore.setState({ user: null, portfolio: null })
+        if (event === 'SIGNED_OUT') account.signedOutElsewhere()
         else if (event === 'SIGNED_IN' && user && account.user?.id !== user.id) account.loadRemote(user).catch(() => {})
       }),
     )
@@ -197,7 +197,7 @@ export default function AppEffects() {
       // Another tab signed in or out. Follow it in memory only: clearing the shared
       // session here would sign every other tab out too.
       subscribeToKey('session', () => {
-        useAccountStore.setState({ user: null, portfolio: null })
+        useAccountStore.getState().signedOutElsewhere()
         notifySettled(useAccountStore.getState().init())
       }),
     ]

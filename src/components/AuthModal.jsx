@@ -74,9 +74,10 @@ function RecoverForm({ onBack, onSuccess }) {
     setBusy(true)
     try {
       const fresh = await resetPassword({ identifier, code, password })
+      // The old code no longer works, so show the new one before anything else can fail.
+      useUiStore.getState().showRecovery(fresh, 'reset')
       await logIn({ identifier, password })
       toast({ tone: 'success', title: 'Password changed', description: 'You are logged in with your new password.' })
-      useUiStore.getState().showRecovery(fresh, 'reset')
       onSuccess()
     } catch (err) {
       setErrors({ [err.field === 'password' ? 'password' : 'form']: err.message })
@@ -156,7 +157,8 @@ function AuthForm({ mode, onModeChange, message, onSuccess }) {
         toast({ tone: 'success', title: `Welcome, ${user.username}`, description: 'You have $100,000.00 in play money to trade.' })
         if (BACKEND_ENABLED) {
           const code = await createRecoveryCode().catch(() => null)
-          useUiStore.getState().showRecovery(code, 'signup')
+          if (code) useUiStore.getState().showRecovery(code, 'signup')
+          else toast({ tone: 'error', title: "Couldn't make your recovery code", description: 'Open the account menu and choose New recovery code.' })
         }
       } else {
         const { user, settled } = await logIn({ identifier, password })

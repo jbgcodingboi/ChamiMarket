@@ -65,6 +65,9 @@ let seenSettlements = null
  */
 let sessionEpoch = 0
 
+/** Backend mode: bumped whenever a server call hands back a portfolio, so an older read can't overwrite it. */
+let portfolioSeq = 0
+
 /** Closes account dialogs that only make sense while signed in. */
 const closeAccountDialogs = () => useUiStore.setState({ resetOpen: false, deleteOpen: false })
 
@@ -106,11 +109,15 @@ export const useAccountStore = create((set, get) => ({
   init() {
     if (BACKEND_ENABLED) {
       set({ accounts: [], ready: false })
-      backend
-        .currentUser()
-        .then((user) => (user ? get().loadRemote(user) : null))
-        .catch(() => {})
-        .finally(() => set({ ready: true }))
+      // A network blip at start-up shouldn't look like being signed out: retry a few times.
+      const load = (tries) =>
+        backend
+          .currentUser()
+          .then((user) => (user ? get().loadRemote(user) : null))
+          .catch(() => {
+            if (tries > 1) return new Promise((r) => setTimeout(r, 3000)).then(() => load(tries - 1))
+          })
+      load(3).finally(() => set({ ready: true }))
       return []
     }
     const accounts = readAccounts()
@@ -124,8 +131,10 @@ export const useAccountStore = create((set, get) => ({
   /** Backend mode: loads the signed-in player's portfolio from the server. Returns new settlements. */
   async loadRemote(user) {
     const epoch = sessionEpoch
+    const seq = portfolioSeq
     const raw = await backend.getPortfolio()
-    if (epoch !== sessionEpoch) return []
+    // Signed out meanwhile, or a trade or game already returned a newer portfolio.
+    if (epoch !== sessionEpoch || seq !== portfolioSeq) return []
     const portfolio = fromServer(raw)
     set({ user: { ...user, username: raw.username ?? user.username }, portfolio })
     return newSettlements(portfolio)
@@ -141,6 +150,7 @@ export const useAccountStore = create((set, get) => ({
   /** Backend mode: adopts a portfolio returned by a server call. */
   adoptRemote(raw) {
     if (!raw || !get().user) return
+    portfolioSeq += 1
     const portfolio = fromServer(raw)
     newSettlements(portfolio)
     set({ portfolio })
@@ -198,6 +208,11 @@ export const useAccountStore = create((set, get) => ({
     if (isReservedName(username)) throw new AuthError('That username is reserved. Pick another.', nameField)
     if (accounts.some((a) => a.username.toLowerCase() === username.toLowerCase())) throw new AuthError('That username is taken.', nameField)
     const secret = await hashPassword(password)
+    // Hashing takes a moment; another tab may have taken the name meanwhile.
+    const latest = readAccounts()
+    if (latest.some((a) => a.identifier === normalized || a.username.toLowerCase() === username.toLowerCase())) {
+      throw new AuthError('That username is taken.', nameField)
+    }
     const account = {
       id: randomId('u'),
       username,
@@ -206,7 +221,7 @@ export const useAccountStore = create((set, get) => ({
       ...secret,
       createdAt: Date.now(),
     }
-    const nextAccounts = [...accounts, account]
+    const nextAccounts = [...latest, account]
     writeJSON(ACCOUNTS_KEY, nextAccounts)
     writeJSON(portfolioKey(account.id), createPortfolio())
     set({ accounts: nextAccounts })
@@ -263,6 +278,14 @@ export const useAccountStore = create((set, get) => ({
     removeKey(SESSION_KEY)
     closeAccountDialogs()
     set({ accounts: rest, user: null, portfolio: null })
+  },
+
+  /** Signed out somewhere else (another tab, or an expired session): forget the player here too. */
+  signedOutElsewhere() {
+    sessionEpoch += 1
+    seenSettlements = null
+    closeAccountDialogs()
+    set({ user: null, portfolio: null })
   },
 
   logOut() {

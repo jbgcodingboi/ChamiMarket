@@ -16,7 +16,8 @@ const [cmd, dir, logFile] = process.argv.slice(2)
 if (cmd === 'keys' && dir) {
   const { publicKey, privateKey } = generateKeyPairSync('rsa', { modulusLength: 3072 })
   mkdirSync(dir, { recursive: true })
-  writeFileSync(join(dir, 'feedback.key'), privateKey.export({ type: 'pkcs8', format: 'pem' }), { mode: 0o600 })
+  // 'wx' refuses to replace an existing key, which would make older reports unreadable.
+  writeFileSync(join(dir, 'feedback.key'), privateKey.export({ type: 'pkcs8', format: 'pem' }), { mode: 0o600, flag: 'wx' })
   console.log(Buffer.from(publicKey.export({ type: 'spki', format: 'pem' })).toString('base64'))
 } else if (cmd === 'read' && dir && logFile) {
   const log = readFileSync(logFile, 'utf8')

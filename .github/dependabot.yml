@@ -4,10 +4,16 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # Waits a week after a release, so a bad or hijacked version is usually pulled before it reaches here.
+    cooldown:
+      default-days: 7
     groups:
       dependencies:
         patterns: ['*']
+        update-types: [minor, patch]
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7

@@ -27,6 +27,11 @@ describe('dates and odds', () => {
     expect(reason({ endDate: '2027-06-02T00:00:00Z' })).toBe('ends-after-cutoff')
     expect(reason({ endDate: '2027-06-20T00:00:00Z' })).toBe('ends-after-cutoff')
   })
+  it('moves the cutoff about seven months out once June 2027 gets close', () => {
+    const later = Date.parse('2027-03-01T12:00:00Z')
+    expect(exclusionReason(base({ endDate: '2027-08-01T00:00:00Z' }), later)).toBeNull()
+    expect(exclusionReason(base({ endDate: '2027-10-15T00:00:00Z' }), later)).toBe('ends-after-cutoff')
+  })
   it('hides ordinary markets below 6% or above 95%', () => {
     expect(reason({ title: 'Chiefs vs. Bills', yesPrice: 0.97 })).toBe('lopsided-odds')
     expect(reason({ title: 'Will the Jets go 17-0?', yesPrice: 0.01 })).toBe('lopsided-odds')

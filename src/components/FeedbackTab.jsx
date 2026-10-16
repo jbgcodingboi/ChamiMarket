@@ -48,7 +48,7 @@ function FeedbackForm({ page, onDone }) {
           {TYPES.map((t) => (
             <label
               key={t.id}
-              className={`cursor-pointer rounded-full border px-3 py-1.5 text-sm transition ${
+              className={`cursor-pointer rounded-full border px-3 py-1.5 text-sm transition has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-primary-300 ${
                 category === t.id ? 'border-primary-400 bg-primary-500/20 text-fg' : 'border-line text-muted hover:text-fg'
               }`}
             >
