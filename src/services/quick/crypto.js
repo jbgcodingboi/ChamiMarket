@@ -8,7 +8,7 @@
  * two of the window ending.
  */
 import { clamp, normalCdf } from '../../utils/math.js'
-import { etTime } from '../../utils/time.js'
+import { etHour, etRange, etTime } from '../../utils/time.js'
 import { fetchJson } from '../http.js'
 import { quickMarket } from './common.js'
 
@@ -83,8 +83,8 @@ export function buildCoinMarkets(coin, data, now) {
     markets.push(
       quickMarket({
         id: upDownId(coin.id, start),
-        title: `${coin.name} up or down, ${etTime(start)}–${etTime(end)} ET?`,
-        eventTitle: `${coin.name} · 15-minute window`,
+        title: `${coin.name} up or down, ${etRange(start, end)}?`,
+        eventTitle: `${coin.name} · 15-minute window · ${etRange(start, end)} ET`,
         description: `Resolves Up if the ${coin.name} price (Coinbase ${coin.product}) at ${etTime(end)} ET is greater than or equal to the price at ${etTime(start)} ET, using the opening price of the ${etTime(start)} one-minute candle and the closing price of the last one-minute candle before ${etTime(end)}. Otherwise resolves Down. Trading closes when the window starts. Priced at even odds: over 15 minutes the direction is close to a coin flip.`,
         endDate: start,
         createdAt: start - 2 * WINDOW,
@@ -101,8 +101,8 @@ export function buildCoinMarkets(coin, data, now) {
       markets.push(
         quickMarket({
           id: aboveId(coin.id, strike, end),
-          title: `${coin.name} above ${usd(strike)} at ${etTime(end)} ET?`,
-          eventTitle: `${coin.name} · now ${usd(data.spot)}`,
+          title: `${coin.name} above ${usd(strike)} at ${etHour(end)}?`,
+          eventTitle: `${coin.name} · now ${usd(data.spot)} · settles ${etTime(end)} ET`,
           description: `Resolves Yes if the closing price of the last one-minute ${coin.product} candle on Coinbase before ${etTime(end)} ET is above ${usd(strike)}. Trading closes at ${etTime(end - HOURLY_CUTOFF)} ET. Odds update live from the current price and the last hour's volatility.`,
           endDate: end - HOURLY_CUTOFF,
           createdAt: end - HOUR,

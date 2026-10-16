@@ -64,7 +64,7 @@ export function espnOutcome(market, games) {
 
 /** True for a two-team moneyline market in a league ESPN covers. */
 export const isEspnSettleable = (m) =>
-  Boolean(m && ESPN_LEAGUES[m.league] && m.labels && m.labels.yes !== 'Yes' && m.labels.no !== 'No' && !/spread|o\/u|over|under|\(/i.test(m.title))
+  Boolean(m && ESPN_LEAGUES[m.league] && m.labels && m.labels.yes !== 'Yes' && m.labels.no !== 'No' && !/\b(spread|o\/u|over|under|total)\b|\(/i.test(m.title))
 
 /** Scoreboards for the game's date (ESPN dates are Eastern); without a start time, the end date and the day before. */
 export async function fetchGamesFor(market) {

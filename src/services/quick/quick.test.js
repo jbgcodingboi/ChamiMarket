@@ -23,10 +23,10 @@ describe('crypto', () => {
     expect(probAbove(82200, 82000, 0.0008, 0)).toBe(1)
     const markets = buildCoinMarkets(BTC, { spot: 82200, sigma: 0.0008, hourOpen: 82190 }, now)
     expect(markets.map((m) => m.title)).toEqual([
-      'Bitcoin up or down, 3:15 PM–3:30 PM ET?',
-      'Bitcoin up or down, 3:30 PM–3:45 PM ET?',
-      'Bitcoin above $82,000 at 4:00 PM ET?',
-      'Bitcoin above $82,250 at 4:00 PM ET?',
+      'Bitcoin up or down, 3:15–3:30 PM?',
+      'Bitcoin up or down, 3:30–3:45 PM?',
+      'Bitcoin above $82,000 at 4 PM?',
+      'Bitcoin above $82,250 at 4 PM?',
     ])
     expect(markets[0].yesPrice).toBe(0.5)
     expect(markets[0].labels).toEqual({ yes: 'Up', no: 'Down' })
@@ -85,14 +85,14 @@ describe('weather', () => {
     const now = Date.parse('2026-10-16T12:00:00Z') // 8 AM ET
     const markets = buildWeatherMarkets(STATIONS[0], parseForecast(forecast), now)
     const titles = markets.map((m) => m.title)
-    expect(titles).toContain('Central Park high of 75°F or warmer today?')
-    expect(titles).not.toContain('Central Park high of 70°F or warmer today?')
-    expect(titles).not.toContain('Measurable rain or snow at Central Park today?') // closed at 7 AM
+    expect(titles).toContain('Central Park hits 75°F today?')
+    expect(titles).not.toContain('Central Park hits 70°F today?')
+    expect(titles).not.toContain('Rain or snow at Central Park today?') // closed at 7 AM
     const high = markets.find((m) => m.title.includes('75°F'))
     expect(high.yesPrice).toBeCloseTo(probHighAtLeast(75, 75, 2.5), 3)
     expect(high.endDate).toBe(new Date(etInstant('2026-10-16', '11:00')).toISOString())
     const early = buildWeatherMarkets(STATIONS[0], parseForecast(forecast), Date.parse('2026-10-16T09:00:00Z'))
-    const rain = early.find((m) => m.title.startsWith('Measurable'))
+    const rain = early.find((m) => m.title.startsWith('Rain or snow'))
     expect(rain.yesPrice).toBeCloseTo(1 - 0.4 * 0.8, 2)
   })
   it('settles highs early on a Yes and otherwise from the final report', () => {
@@ -119,7 +119,7 @@ describe('stocks', () => {
   it('builds up/down markets and settles from closes', () => {
     const now = Date.parse('2026-10-16T12:00:00Z')
     const [spy] = buildStockMarkets(now, { SPY: [{ date: '2026-10-15', close: 771.79, final: true }] })
-    expect(spy.title).toBe('Will the S&P 500 (SPY) close up on Fri, Oct 16?')
+    expect(spy.title).toBe('S&P 500 (SPY) up on Fri, Oct 16?')
     expect(spy.eventTitle).toContain('previous close $771.79')
     expect(spy.yesPrice).toBe(0.53)
     const closes = { SPY: [{ date: '2026-10-15', close: 771.79, final: true }, { date: '2026-10-16', close: 775.1, final: true }] }
@@ -158,6 +158,9 @@ describe('ESPN settlement', () => {
     expect(espnOutcome(market, live)).toBeNull()
     expect(espnOutcome({ ...market, labels: { yes: 'Jets', no: 'Broncos' } }, parseScoreboard(board))).toBeNull()
     expect(isEspnSettleable({ ...market, title: 'Spread: Broncos (-3.5)' })).toBe(false)
+    expect(isEspnSettleable({ ...market, title: 'Broncos vs. Seahawks: O/U 44.5' })).toBe(false)
+    // Team names that merely contain "under" or "over" are still moneylines.
+    expect(isEspnSettleable({ title: 'Thunder vs. Rockets', league: 'nba', labels: { yes: 'Thunder', no: 'Rockets' } })).toBe(true)
     expect(isEspnSettleable({ ...market, labels: { yes: 'Yes', no: 'No' } })).toBe(false)
   })
 })

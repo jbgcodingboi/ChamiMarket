@@ -48,7 +48,7 @@ export function buildStockMarkets(now, closes = {}) {
     const prevClose = (closes[s.symbol] ?? []).find((c) => c.date === prev && c.final)?.close
     return quickMarket({
       id: stockId(s.id, date),
-      title: `Will the ${s.name} close up on ${etDayLabel(date)}?`,
+      title: `${s.name} up on ${etDayLabel(date)}?`,
       eventTitle: `${s.name} · ${etDayLabel(date)} session${prevClose ? ` · previous close ${usd(prevClose)}` : ''}`,
       description: `Resolves Yes if ${s.symbol}'s official closing price on ${etDayLabel(date)} is higher than its close on ${etDayLabel(prev)}${prevClose ? ` (${usd(prevClose)})` : ''}. An unchanged close resolves No. Trading closes at the 9:30 AM ET open; the market settles shortly after the 4:00 PM close. Priced at the long-run share of up days for U.S. stocks, about 53%. If the market doesn't open that day, the market is voided.`,
       endDate: etInstant(date, '09:30'),
