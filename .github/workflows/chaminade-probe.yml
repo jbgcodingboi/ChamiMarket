@@ -9,37 +9,16 @@ permissions:
   contents: read
 
 jobs:
-  probe:
+  dry-run:
     runs-on: ubuntu-latest
     steps:
-      - name: Summarize the calendar feed
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Build snapshots against the real sources
         run: |
-          UA='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Safari/537.36'
-          BASE=https://athletics.chaminade-hs.org/services/responsive-calendar.ashx
-          for d in 9/1/2026 10/1/2026 11/1/2026; do
-            curl -sS -L -A "$UA" --max-time 30 "$BASE?type=month&sport=0&location=all&date=$d" -o "m$(echo $d | cut -d/ -f1).json"
-          done
-          curl -sS -L -A "$UA" -D h.txt -o /dev/null --max-time 30 "$BASE?type=month&sport=0&location=all&date=10/1/2026"
-          echo "== response headers"; cat h.txt
-          python3 - <<'PY'
-          import json, glob
-          events = []
-          for f in sorted(glob.glob('m*.json')):
-              for day in json.load(open(f)):
-                  events.extend(day.get('events') or [])
-          print('== total events', len(events))
-          print('== event keys', sorted(events[0].keys()))
-          with_result = [e for e in events if e.get('result')]
-          print('== first event with a result (full JSON)')
-          print(json.dumps(with_result[0] if with_result else events[0], indent=1)[:4000])
-          print('== sports', sorted({(e['sport'] or {}).get('title') for e in events}))
-          print('== statuses', sorted({str(e.get('status')) for e in events}), 'types', sorted({str(e.get('type')) for e in events}))
-          print('== compact list')
-          seen = set()
-          for e in sorted(events, key=lambda e: e['date']):
-              if e['id'] in seen: continue
-              seen.add(e['id'])
-              r = e.get('result') or {}
-              rs = {k: r.get(k) for k in ('status', 'team_score', 'opponent_score', 'postscore_info', 'line_score')} if r else None
-              print(e['date'], '|', (e['sport'] or {}).get('title'), '|', e.get('at_vs'), (e['opponent'] or {}).get('title'), '|', e.get('location_indicator'), '|', e.get('status'), e.get('noplay_text'), '|', rs)
-          PY
+          npm run snapshot
+          node -e "const c=require('./public/data/chaminade.json');console.log('results sample', JSON.stringify(Object.entries(c.results).slice(-8)));console.log('first market', JSON.stringify(c.markets[0], null, 1))"

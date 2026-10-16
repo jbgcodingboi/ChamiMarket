@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { hashString } from '../../utils/rng.js'
+import BrandMark from '../layout/BrandMark.jsx'
 
 const GRADIENTS = [
   'from-primary-500 to-primary-800',
@@ -17,6 +18,7 @@ function initials(title) {
 
 export default function MarketAvatar({ market, size = 'size-10' }) {
   const [failed, setFailed] = useState(false)
+  if (market.category === 'chaminade') return <BrandMark className={`${size} shrink-0`} rounded={16} />
   if (market.image && !failed) {
     return (
       <img
