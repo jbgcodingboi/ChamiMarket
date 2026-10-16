@@ -12,7 +12,16 @@ const MAX_HISTORY = 200
 
 const EMPTY = Object.freeze({ history: [], stats: {}, pending: [], run: 0, runNet: 0, runRounds: 0, runWagered: 0, runBest: 0 })
 
-const isGames = (g) => isPlainObject(g) && Array.isArray(g.history) && isPlainObject(g.stats) && Array.isArray(g.pending)
+const isStat = (v) => isPlainObject(v) && ['rounds', 'wagered', 'net', 'best'].every((k) => Number.isFinite(v[k]))
+const isPending = (b) => isPlainObject(b) && typeof b.id === 'string' && typeof b.game === 'string' && Number.isFinite(b.staked) && Number.isFinite(b.returned)
+// Every stat and pending payout is checked, so one tampered entry can't crash the leaderboard or a payout.
+const isGames = (g) =>
+  isPlainObject(g) &&
+  Array.isArray(g.history) &&
+  isPlainObject(g.stats) &&
+  Object.values(g.stats).every(isStat) &&
+  Array.isArray(g.pending) &&
+  g.pending.every(isPending)
 
 export const gamesOf = (portfolio) => (isGames(portfolio?.games) ? portfolio.games : EMPTY)
 

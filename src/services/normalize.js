@@ -49,6 +49,8 @@ function detectResolvedOutcome({ closed, yesPrice, noPrice }) {
   if (!closed) return null
   if (yesPrice >= 0.99 && noPrice <= 0.01) return 'yes'
   if (noPrice >= 0.99 && yesPrice <= 0.01) return 'no'
+  // Polymarket settles canceled events 50-50; here that refunds at cost.
+  if (yesPrice === 0.5 && noPrice === 0.5) return 'void'
   return null
 }
 
@@ -95,7 +97,7 @@ export function normalizeGammaMarket(raw, category, { league = null } = {}) {
     league,
     tags: normalizeTags(event?.tags),
     image: toImage(raw.image) || toImage(raw.icon) || toImage(event?.image),
-    labels: { yes: outcomes[0].trim(), no: outcomes[1].trim() },
+    labels: { yes: outcomes[0].trim().slice(0, 100), no: outcomes[1].trim().slice(0, 100) },
     yesPrice,
     noPrice,
     tokenIds,

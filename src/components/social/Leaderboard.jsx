@@ -79,7 +79,7 @@ export default function Leaderboard() {
   const user = useAccountStore((s) => s.user)
   const openAuth = useUiStore((s) => s.openAuth)
   const [params, setParams] = useSearchParams()
-  const boardId = BOARDS[params.get('board')] ? params.get('board') : 'overall'
+  const boardId = Object.hasOwn(BOARDS, params.get('board') ?? '') ? params.get('board') : 'overall'
   const board = BOARDS[boardId]
 
   const rows = useMemo(

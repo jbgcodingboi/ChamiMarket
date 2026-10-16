@@ -39,6 +39,12 @@ select pg_temp.ok((select cash from public.portfolios where user_id = :'alice') 
 select pg_temp.ok((select count(*) from public.equity_snapshots where user_id = :'alice') = 1, 'sign-up records a first equity snapshot');
 select pg_temp.expect_error($$insert into auth.users (email, raw_user_meta_data) values ('c@x.test', '{"username":"ALICE"}')$$, '%duplicate%');
 select pg_temp.expect_error($$insert into auth.users (email, raw_user_meta_data) values ('d@x.test', '{"username":"no spaces"}')$$, '%username%');
+select pg_temp.expect_error($$insert into auth.users (email, raw_user_meta_data) values ('e@x.test', '{"username":"CryptoOracle"}')$$, '%reserved%');
+select pg_temp.expect_error($$insert into auth.users (email, raw_user_meta_data) values ('f@x.test', '{"username":"Chaminade_Admin"}')$$, '%reserved%');
+select pg_temp.expect_error($$insert into auth.users (email, raw_user_meta_data) values ('g@x.test', '{"username":"quietkeIIy"}')$$, '%reserved%');
+select pg_temp.expect_error($$insert into auth.users (email, raw_user_meta_data) values ('h@x.test', '{"username":"sim_7"}')$$, '%reserved%');
+select pg_temp.expect_error($$insert into auth.users (email, raw_user_meta_data) values ('victim@users.chamimarket.app', '{"username":"mallory"}')$$, '%not available%');
+select pg_temp.expect_error($$update auth.users set email = 'victim@users.chamimarket.app' where id = (select id from public.profiles where username = 'bob')$$, '%not available%');
 
 -- Markets (as the sync job) -------------------------------------------------
 set role service_role;
@@ -54,6 +60,14 @@ select pg_temp.ok(public.sync_markets(jsonb_build_array(
   jsonb_build_object('id', 'q-btc-above-80000-1', 'title', 'BTC above?', 'category', 'quick', 'yesPrice', 0.5, 'noPrice', 0.5, 'endDate', now() + interval '1 hour')
 )) = 5, 'sync_markets stores valid markets and skips bad ids');
 reset role;
+update public.markets set updated_at = now() - interval '20 minutes' where id = 'q-btc-above-80000-1';
+select pg_temp.ok(abs(private.norm_cdf(0) - 0.5) < 1e-6 and abs(private.norm_cdf(1.959964) - 0.975) < 1e-5 and abs(private.norm_cdf(-1.959964) - 0.025) < 1e-5,
+  'the normal CDF behind live crypto odds is accurate');
+select pg_temp.ok(private.above_prob(80000, 80250, 0.0008, 30) = 0.2375 and private.above_prob(4000, 3990, 0.001, 12) = 0.7645
+  and private.above_prob(80000, 80250, 0.0008, 0) = 0.02, 'server crypto odds match the browser''s probAbove()');
+-- Without a live Coinbase price (no http extension here), an hourly crypto market trades only on a very fresh synced price.
+update public.markets set updated_at = now() - interval '5 minutes' where id = 'q-btc-above-80000-1';
+select pg_temp.ok((select err from private.quote('q-btc-above-80000-1', 'yes')) like '%refreshing%', 'a 5 minute old crypto price is too old to trade on');
 update public.markets set updated_at = now() - interval '20 minutes' where id = 'q-btc-above-80000-1';
 
 -- Row level security --------------------------------------------------------
@@ -72,14 +86,21 @@ select pg_temp.expect_error($$select private.rand_int(10)$$, '%permission denied
 -- Trading -------------------------------------------------------------------
 select pg_temp.ok((public.buy('123', 'yes', 100, 0.6) ->> 'shares')::numeric = 166.6667, 'buy $100 at 60¢ gets 166.6667 shares');
 select pg_temp.ok((public.get_portfolio() ->> 'cash')::numeric = 99900, 'cash drops by the amount spent');
-select pg_temp.expect_error($$select public.buy('123', 'yes', 100, 0.5)$$, '%price moved to 60%');
+select pg_temp.ok(public.buy('123', 'yes', 100, 0.5) ->> 'error' like '%price moved to 60%', 'a stale price is refused (as an answer, not an error)');
 select pg_temp.expect_error($$select public.buy('123', 'yes', 200000, 0.6)$$, '%exceeds your available cash%');
 select pg_temp.expect_error($$select public.buy('123', 'yes', 'NaN', 0.6)$$, '%at least $0.01%');
 select pg_temp.expect_error($$select public.buy('123', 'yes', 0.001, 0.6)$$, '%at least $0.01%');
-select pg_temp.expect_error($$select public.buy('456', 'yes', 10, 0.5)$$, '%event has ended%');
-select pg_temp.expect_error($$select public.buy('nope', 'yes', 10, 0.5)$$, '%not available%');
-select pg_temp.expect_error($$select public.buy('q-btc-above-80000-1', 'yes', 10, 0.5)$$, '%refreshing%');
-select pg_temp.expect_error($$select public.buy('123', 'maybe', 10, 0.5)$$, '%Yes or No%');
+select pg_temp.ok(public.buy('456', 'yes', 10, 0.5) ->> 'error' like '%event has ended%', 'ended events are refused');
+select pg_temp.ok(public.buy('nope', 'yes', 10, 0.5) ->> 'error' like '%not available%', 'unknown markets are refused');
+select pg_temp.ok(public.buy('q-btc-above-80000-1', 'yes', 10, 0.5) ->> 'error' like '%refreshing%', 'stale hourly crypto prices are refused');
+select pg_temp.ok(public.buy('123', 'maybe', 10, 0.5) ->> 'error' like '%Yes or No%', 'sides are Yes or No');
+do $$ declare i int; begin
+  perform pg_temp.clear_limits();
+  for i in 1..30 loop perform public.buy('123', 'yes', 10, 0.01); end loop;
+  perform pg_temp.expect_error($q$select public.buy('123', 'yes', 10, 0.01)$q$, '%Slow down%');
+  perform pg_temp.clear_limits();
+end $$;
+select pg_temp.ok(true, 'refused trades still count toward the rate limit');
 select pg_temp.ok((public.sell('123', 'yes', 66.6667, 0.6) ->> 'proceeds')::numeric = 40, 'selling 66.6667 shares at 60¢ returns $40');
 select pg_temp.ok((public.get_portfolio() -> 'positions' -> '123:yes' ->> 'shares')::numeric = 100, '100 shares left after a partial sale');
 select pg_temp.expect_error($$select public.sell('123', 'yes', 1000, 0.6)$$, '%only own%');
@@ -104,7 +125,7 @@ select set_config('request.jwt.claim.sub', :'alice', false);
 -- 99900 + 40 (sale) - 30 (house) + 100 (win) + 30 (void refund)
 select pg_temp.ok((public.get_portfolio() ->> 'cash')::numeric = 100040, 'payouts land in cash: winners $1 a share, voids at cost');
 select pg_temp.ok((public.get_portfolio() ->> 'realizedPnl')::numeric = 40, 'realized PnL counts the sale ($0) and the win ($40)');
-select pg_temp.expect_error($$select public.buy('123', 'yes', 10, 1)$$, '%resolved%');
+select pg_temp.ok(public.buy('123', 'yes', 10, 1) ->> 'error' like '%resolved%', 'resolved markets are closed');
 
 -- Roulette ------------------------------------------------------------------
 select pg_temp.expect_error($$select public.play_roulette('[{"key":"split:1-5","amount":10}]')$$, '%Invalid bet%');
@@ -359,6 +380,7 @@ select pg_temp.ok((select (r ->> 'netWorth')::numeric from jsonb_array_elements(
 
 -- Reset ---------------------------------------------------------------------
 select pg_temp.ok((public.reset_balance() ->> 'cash')::numeric = 50000, 'reset starts a $50,000 run');
+select pg_temp.expect_error($$select public.reset_balance()$$, '%once every 24 hours%');
 select pg_temp.ok((public.get_portfolio() ->> 'run')::int = 2 and public.get_portfolio() -> 'positions' = '{}', 'reset clears positions and bumps the run');
 select pg_temp.ok((public.get_portfolio() -> 'games' ->> 'runRounds')::int = 0, 'game totals restart with the run');
 
@@ -370,6 +392,7 @@ select pg_temp.ok((select count(*) from public.activity where kind = 'buy') = 2,
 select pg_temp.ok((select count(*) from public.portfolios) = 0, 'guests can''t read portfolios');
 select pg_temp.expect_error($$select public.buy('123', 'yes', 10, 0.5)$$, '%permission denied%');
 select pg_temp.ok(public.username_available('carol') and not public.username_available('Alice'), 'username availability is case-insensitive');
+select pg_temp.ok(not public.username_available('cryptooracle') and not public.username_available('Official_Bot'), 'reserved names never show as available');
 
 -- Recovery codes --------------------------------------------------------------
 reset role;
@@ -393,6 +416,14 @@ do $$ declare i int; begin
 end $$;
 select pg_temp.ok(public.reset_password_with_code('bob@example.com', :'code2', 'another password') ->> 'error' like '%Too many%',
   'five wrong codes lock recovery, even for the right code');
+reset role;
+update public.recovery_codes set locked_until = now() - interval '1 minute' where user_id = :'bob';
+set role anon;
+select pg_temp.ok(public.reset_password_with_code('bob@example.com', 'AAAA-BBBB-CCCC', 'another password') ->> 'error' like '%don''t match%',
+  'an expired lock lets guessing resume');
+reset role;
+select pg_temp.ok((select failed_attempts = 1 and locked_until is null from public.recovery_codes where user_id = :'bob'), 'and the count starts over');
+set role anon;
 reset role;
 select pg_temp.ok((select encrypted_password = extensions.crypt('brand new password', encrypted_password) from auth.users where id = :'bob'),
   'the locked attempt did not change the password');

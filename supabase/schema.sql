@@ -311,41 +311,90 @@ begin
   return jsonb_build_object(
     'yes', round(y, 4), 'no', round(n, 4),
     'closed', coalesce((j ->> 'closed')::boolean, false),
+    'accepting', coalesce((j ->> 'acceptingOrders')::boolean, true),
     'end_date', j ->> 'endDate',
     'title', left(coalesce(j ->> 'question', ''), 300),
     'outcome', case
       when coalesce((j ->> 'closed')::boolean, false) and y >= 0.99 and n <= 0.01 then 'yes'
       when coalesce((j ->> 'closed')::boolean, false) and n >= 0.99 and y <= 0.01 then 'no'
+      -- Canceled events settle 50-50 on Polymarket; here they refund at cost.
+      when coalesce((j ->> 'closed')::boolean, false) and y = 0.5 and n = 0.5 then 'void'
     end
   );
 end $$;
 
+/** Live Coinbase spot price via the http extension; null when unavailable. */
+create or replace function private.live_coinbase(p_product text) returns numeric
+language plpgsql volatile set search_path = '' as $$
+declare v_status int; v_body text; v numeric;
+begin
+  if p_product not in ('BTC-USD', 'ETH-USD') then return null; end if;
+  begin
+    perform extensions.http_set_curlopt('CURLOPT_TIMEOUT_MS', '3000');
+    select status, content into v_status, v_body from extensions.http_get('https://api.exchange.coinbase.com/products/' || p_product || '/ticker');
+    if v_status is distinct from 200 then return null; end if;
+    v := (v_body::jsonb ->> 'price')::numeric;
+  exception when others then
+    return null;
+  end;
+  return case when v > 0 then v end;
+end $$;
+
+/** Standard normal CDF (Abramowitz and Stegun 7.1.26, error under 2e-7). */
+create or replace function private.norm_cdf(x float8) returns float8
+language plpgsql immutable set search_path = '' as $$
+declare z float8 := abs(x) / sqrt(2.0); t float8 := 1 / (1 + 0.3275911 * z); e float8;
+begin
+  e := 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * exp(-z * z);
+  return case when x >= 0 then (1 + e) / 2 else (1 - e) / 2 end;
+end $$;
+
+/**
+ * Chance an hourly crypto market finishes above its strike: lognormal with no
+ * drift, the same formula as probAbove() in src/services/quick/crypto.js,
+ * kept between 2% and 98% like the listed odds.
+ */
+create or replace function private.above_prob(p_spot numeric, p_strike numeric, p_sigma float8, p_minutes float8) returns numeric
+language plpgsql immutable set search_path = '' as $$
+declare sd float8;
+begin
+  if p_minutes <= 0 then return case when p_spot > p_strike then 0.98 else 0.02 end; end if;
+  sd := p_sigma * sqrt(p_minutes);
+  return round(least(greatest(private.norm_cdf((ln(p_spot / p_strike)::float8 - sd * sd / 2) / sd)::numeric, 0.02), 0.98), 4);
+end $$;
+
+drop function if exists private.quote(text, text);
+
 /**
  * The server's price for one outcome, with the market's title and closing
- * time. Raises when the market can't be traded right now.
+ * time. Problems come back in `err` rather than as exceptions: a raise would
+ * roll back the price cache and rate limit along with the trade, letting
+ * failed trades hit the price APIs without limit.
  */
-create or replace function private.quote(p_market text, p_side text, out price numeric, out title text, out closes timestamptz)
+create or replace function private.quote(p_market text, p_side text, out price numeric, out title text, out closes timestamptz, out err text)
 language plpgsql volatile set search_path = '' as $$
-declare m public.markets; live jsonb; legs text[]; leg text; leg_id text; leg_side text; lp numeric; lt text; lc timestamptz; max_age interval;
+declare m public.markets; live jsonb; legs text[]; leg text; leg_id text; leg_side text; lq record; lc timestamptz;
+  spot numeric; strike numeric; v_end timestamptz; sigma float8; p numeric;
 begin
-  if p_side not in ('yes', 'no') then raise exception 'Pick Yes or No.'; end if;
+  if p_side not in ('yes', 'no') then err := 'Pick Yes or No.'; return; end if;
   if exists (select 1 from public.resolutions where market_id = p_market) then
-    raise exception 'This market is resolved. Trading is closed.';
+    err := 'This market is resolved. Trading is closed.'; return;
   end if;
 
-  -- Parlays are priced from their legs ("q-parlay-<id>_y~<id>_n").
+  -- Parlays (retired, still sellable) are priced from their legs ("q-parlay-<id>_y~<id>_n").
   if p_market like 'q-parlay-%' then
     legs := string_to_array(substr(p_market, 10), '~');
-    if coalesce(array_length(legs, 1), 0) < 2 then raise exception 'This market is not available for trading right now.'; end if;
+    if coalesce(array_length(legs, 1), 0) < 2 then err := 'This market is not available for trading right now.'; return; end if;
     price := 1;
     closes := null;
     foreach leg in array legs loop
       leg_id := regexp_replace(leg, '_[yn]$', '');
       leg_side := case when leg ~ '_y$' then 'yes' else 'no' end;
-      select q.price, q.title, q.closes into lp, lt, lc from private.quote(leg_id, leg_side) q;
-      price := price * lp;
-      select least(coalesce(mm.game_start, mm.end_date), lc) into lc from public.markets mm where mm.id = leg_id;
-      closes := least(coalesce(closes, lc), lc);
+      select * into lq from private.quote(leg_id, leg_side);
+      if lq.err is not null then err := lq.err; return; end if;
+      price := price * lq.price;
+      select least(coalesce(mm.game_start, mm.end_date), lq.closes) into lc from public.markets mm where mm.id = leg_id;
+      closes := least(closes, lc, lq.closes);
     end loop;
     if p_side = 'no' then price := 1 - price; end if;
     price := round(price, 4);
@@ -353,47 +402,65 @@ begin
     title := coalesce(title, 'Parlay');
   else
     select * into m from public.markets where id = p_market;
-    -- Live prices only for markets the sync job knows about, and at most every
-    -- 20 seconds per market, so failed or spammed trades can't flood the API.
-    if p_market ~ '^\d+$' and m.id is not null and m.updated_at < now() - interval '20 seconds' then
-      live := private.live_gamma(p_market);
-    end if;
-    if live is not null then
-      if (live ->> 'closed')::boolean then raise exception 'This market is closed.'; end if;
-      price := (live ->> case when p_side = 'yes' then 'yes' else 'no' end)::numeric;
-      title := coalesce(nullif(live ->> 'title', ''), m.title, '');
-      closes := coalesce(m.end_date, (live ->> 'end_date')::timestamptz);
-      update public.markets set yes_price = (live ->> 'yes')::numeric, no_price = (live ->> 'no')::numeric, updated_at = now() where id = p_market;
-    else
-      if m.id is null then raise exception 'This market is not available for trading right now.'; end if;
-      -- Hourly crypto markets move fast, so their synced price expires sooner.
-      max_age := case when p_market ~ '^q-[a-z]+-above-' then interval '12 minutes' else interval '3 hours' end;
-      if m.updated_at < now() - max_age then
-        raise exception 'This market''s price is refreshing. Try again in a few minutes.';
+    if m.id is null then err := 'This market is not available for trading right now.'; return; end if;
+    if m.closed then err := 'This market is closed.'; return; end if;
+    title := m.title;
+    closes := m.end_date;
+
+    if p_market ~ '^\d+$' then
+      -- Polymarket: a live price, at most every 5 seconds per market.
+      if m.updated_at < now() - interval '5 seconds' then live := private.live_gamma(p_market); end if;
+      if live is not null then
+        update public.markets set yes_price = (live ->> 'yes')::numeric, no_price = (live ->> 'no')::numeric, updated_at = now()
+        where id = p_market;
+        -- Closed, or paused once a game ends but before it resolves: the winner is already known.
+        if (live ->> 'closed')::boolean or not (live ->> 'accepting')::boolean then err := 'This market is closed.'; return; end if;
+        m.yes_price := (live ->> 'yes')::numeric;
+        m.no_price := (live ->> 'no')::numeric;
+        m.updated_at := now();
+        title := coalesce(nullif(live ->> 'title', ''), m.title, '');
+        closes := coalesce(m.end_date, (live ->> 'end_date')::timestamptz);
       end if;
-      if m.closed then raise exception 'This market is closed.'; end if;
-      price := case when p_side = 'yes' then m.yes_price else m.no_price end;
-      title := m.title;
-      closes := m.end_date;
+      if m.updated_at < now() - interval '3 hours' then err := 'This market''s price is refreshing. Try again in a few minutes.'; return; end if;
+    elsif p_market ~ '^q-(btc|eth)-above-\d+(\.\d+)?-\d+$' then
+      -- Hourly crypto markets move fast: price them from live Coinbase spot,
+      -- at most every 10 seconds per market, the same way the browser does.
+      strike := substring(p_market from '^q-[a-z]+-above-(\d+(?:\.\d+)?)-')::numeric;
+      v_end := to_timestamp(substring(p_market from '-(\d+)$')::bigint);
+      sigma := (m.data -> 'quote' ->> 'sigma')::float8;
+      if m.updated_at < now() - interval '10 seconds' and sigma > 0 then
+        spot := private.live_coinbase(m.data -> 'quote' ->> 'product');
+        if spot is not null then
+          p := private.above_prob(spot, strike, sigma, extract(epoch from v_end - now()) / 60);
+          update public.markets set yes_price = p, no_price = 1 - p, updated_at = now() where id = p_market;
+          m.yes_price := p;
+          m.no_price := 1 - p;
+          m.updated_at := now();
+        end if;
+      end if;
+      -- Without a live price, only a very fresh synced one will do.
+      if m.updated_at < now() - interval '4 minutes' then err := 'This market''s price is refreshing. Try again in a minute.'; return; end if;
+    else
+      if m.updated_at < now() - interval '3 hours' then err := 'This market''s price is refreshing. Try again in a few minutes.'; return; end if;
     end if;
+    price := case when p_side = 'yes' then m.yes_price else m.no_price end;
   end if;
 
   if closes is not null and closes <= now() then
-    raise exception 'This event has ended. Trading is closed until it settles.';
+    err := 'This event has ended. Trading is closed until it settles.'; return;
   end if;
   if price is null or price <= 0 or price >= 1 then
-    raise exception 'This outcome has no tradable price right now.';
+    err := 'This outcome has no tradable price right now.'; return;
   end if;
 end $$;
 
 /** Rejects a trade when the price the player saw is more than 3 cents off the server's. */
-create or replace function private.check_price(p_seen numeric, p_server numeric) returns void
-language plpgsql immutable set search_path = '' as $$
-begin
-  if p_seen is not null and abs(p_seen - p_server) > 0.03 then
-    raise exception 'The price moved to %¢. Check the new price and try again.', round(p_server * 100, 1);
-  end if;
-end $$;
+drop function if exists private.check_price(numeric, numeric);
+create or replace function private.price_moved(p_seen numeric, p_server numeric) returns text
+language sql immutable set search_path = '' as $$
+  select case when p_seen is not null and abs(p_seen - p_server) > 0.03
+    then format('The price moved to %s¢. Check the new price and try again.', round(p_server * 100, 1)) end
+$$;
 
 /** A position's value: resolved markets pay $1 or $0 (void refunds cost), else the stored price. */
 create or replace function private.position_value(p public.positions) returns numeric
@@ -484,6 +551,70 @@ $$;
 -- Accounts
 -- ---------------------------------------------------------------------------
 
+/**
+ * Names players can't take: the simulated players' names (so nobody can pass
+ * as one, or have one pass as them) and anything that looks official.
+ * Keep the list in step with src/services/mockTraders.js (a unit test checks).
+ */
+/** A name folded for look-alike checks: lowercase, no _ . + -, and 0 1 3 4 5 7 8 i read as o l e a s t b l. */
+create or replace function private.name_key(p_name text) returns text
+language sql immutable set search_path = '' as $$
+  select translate(lower(regexp_replace(coalesce(p_name, ''), '[_.+-]', '', 'g')), '0134578i', 'oleastbl')
+$$;
+
+create or replace function private.is_reserved_name(p_name text) returns boolean
+language sql immutable set search_path = '' as $$
+  select private.name_key(p_name) in (select private.name_key(x) from unnest(array[
+    'ballotmaster',
+    'benchwarmer',
+    'bullpenbets',
+    'coinflipcarl',
+    'contrarian_cat',
+    'cryptooracle',
+    'datadan',
+    'electoraledge',
+    'filibusterfred',
+    'forecastfiona',
+    'fourthandlong',
+    'gamedaygabe',
+    'gridironguru',
+    'hoopshedger',
+    'longshotlou',
+    'lucky_lena',
+    'mapleleaf_mo',
+    'marginmaya',
+    'midtermmaven',
+    'nightowl88',
+    'nottoday_nia',
+    'oddsonollie',
+    'parlayprincess',
+    'pivotpete',
+    'pollpundit',
+    'quietkelly',
+    'redzonerita',
+    'sixfigurespreads',
+    'statsgeek',
+    'swingstatesam',
+    'tipofftom',
+    'whaletrader99',
+    'yesman_jay',
+    'mod',
+    'support',
+    'staff',
+    'system',
+    'sim',
+    'root',
+    'owner',
+    'help',
+    'null',
+    'undefined'
+  ]) x)
+    or exists (select 1 from unnest(array['admin', 'moderator', 'official', 'chaminade', 'chamimarket']) w
+      where position(private.name_key(w) in private.name_key(p_name)) > 0)
+    -- "sim" on its own or as a tag (sim_1, bot-sim) would pass as a simulated player.
+    or lower(coalesce(p_name, '')) ~ '(^|[^a-z])sim([^a-z]|$)'
+$$;
+
 /** Creates the profile and a $100,000 portfolio for every new sign-up. */
 create or replace function private.handle_new_user() returns trigger
 language plpgsql security definer set search_path = '' as $$
@@ -491,6 +622,12 @@ declare v_name text := trim(coalesce(new.raw_user_meta_data ->> 'username', ''))
 begin
   if v_name !~ '^[A-Za-z0-9_.+-]{1,20}$' then
     raise exception 'Pick a username of up to 20 letters, numbers or underscores.';
+  end if;
+  if private.is_reserved_name(v_name) then raise exception 'That username is reserved. Pick another.'; end if;
+  -- A username's login address (<name>@users.chamimarket.app, see VITE_USERNAME_EMAIL_DOMAIN) belongs to that
+  -- username only, so nobody can claim someone else's login name under a different profile name.
+  if lower(new.email) like '%@users.chamimarket.app' and lower(split_part(new.email, '@', 1)) <> lower(v_name) then
+    raise exception 'That username is not available.';
   end if;
   insert into public.profiles (id, username) values (new.id, v_name);
   insert into public.portfolios (user_id, cash, run_start_cash) values (new.id, 100000, 100000);
@@ -501,9 +638,25 @@ end $$;
 drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created after insert on auth.users for each row execute function private.handle_new_user();
 
+/** Keeps the same rule when an account changes its email later. */
+create or replace function private.check_login_email() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  if lower(new.email) like '%@users.chamimarket.app'
+    and lower(split_part(new.email, '@', 1)) <> lower(coalesce((select username::text from public.profiles where id = new.id), '')) then
+    raise exception 'That email address is not available.';
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists on_auth_user_email on auth.users;
+create trigger on_auth_user_email before update of email on auth.users for each row
+  when (old.email is distinct from new.email) execute function private.check_login_email();
+
 create or replace function public.username_available(p_username text) returns boolean
 language sql stable security definer set search_path = '' as $$
-  select not exists (select 1 from public.profiles where lower(username::text) = lower(trim(p_username)))
+  select not private.is_reserved_name(p_username)
+    and not exists (select 1 from public.profiles where lower(username::text) = lower(trim(p_username)))
 $$;
 
 create or replace function public.get_portfolio() returns jsonb
@@ -555,10 +708,15 @@ begin
   if rc.locked_until is not null and rc.locked_until > now() then
     return jsonb_build_object('error', 'Too many wrong codes. Try again in 15 minutes.');
   end if;
+  -- An expired lock starts the count over, so one guess every 15 minutes can't keep it locked forever.
+  if rc.locked_until is not null then
+    update public.recovery_codes set failed_attempts = 0, locked_until = null where user_id = v_user;
+    rc.failed_attempts := 0;
+  end if;
   v_code := substr(v_code, 1, 4) || '-' || substr(v_code, 5, 4) || '-' || substr(v_code, 9, 4);
   if extensions.crypt(v_code, rc.code_hash) <> rc.code_hash then
-    update public.recovery_codes set failed_attempts = failed_attempts + 1,
-      locked_until = case when failed_attempts + 1 >= 5 then now() + interval '15 minutes' end
+    update public.recovery_codes set failed_attempts = rc.failed_attempts + 1,
+      locked_until = case when rc.failed_attempts + 1 >= 5 then now() + interval '15 minutes' end
     where user_id = v_user;
     return jsonb_build_object('error', no_match);
   end if;
@@ -593,16 +751,20 @@ language plpgsql volatile security definer set search_path = '' as $$
 declare v_user uuid := private.uid(); pf public.portfolios; q record; spend numeric; v_shares numeric; label text;
 begin
   perform private.rate_limit(v_user, 'trade', 30);
-  if not (p_amount >= 0.01 and p_amount < 1e12) then raise exception 'Enter an amount of at least $0.01.'; end if;
+  if p_amount is null or not (p_amount >= 0.01 and p_amount < 1e12) then raise exception 'Enter an amount of at least $0.01.'; end if;
   -- Parlays are no longer offered. Positions opened earlier can still be sold and settle as before.
   if p_market_id like 'q-parlay-%' then raise exception 'Parlays are no longer offered.'; end if;
   select * into pf from public.portfolios where user_id = v_user for update;
-  select * into q from private.quote(p_market_id, p_side);
-  perform private.check_price(p_seen_price, q.price);
   spend := round(p_amount, 2);
   if spend > pf.cash then raise exception 'Amount exceeds your available cash ($%).', to_char(pf.cash, 'FM999,999,999,990.00'); end if;
+  -- One trade or settlement per market at a time, so a buy can't slip in while it settles.
+  perform pg_advisory_xact_lock(hashtext('market:' || p_market_id));
+  -- From here on, problems are returned rather than raised so the price check and rate limit stick.
+  select * into q from private.quote(p_market_id, p_side);
+  if q.err is not null then return jsonb_build_object('error', q.err); end if;
+  if private.price_moved(p_seen_price, q.price) is not null then return jsonb_build_object('error', private.price_moved(p_seen_price, q.price)); end if;
   v_shares := round(spend / q.price, 4);
-  if v_shares < 0.0001 then raise exception 'Order is too small to buy any shares.'; end if;
+  if v_shares < 0.0001 then return jsonb_build_object('error', 'Order is too small to buy any shares.'); end if;
 
   insert into public.positions as p (user_id, market_id, side, market_title, shares, cost_basis)
   values (v_user, p_market_id, p_side, q.title, v_shares, spend)
@@ -625,23 +787,26 @@ declare v_user uuid := private.uid(); pf public.portfolios; pos public.positions
   proceeds numeric; cost_part numeric; pnl numeric; full_sale boolean; label text;
 begin
   perform private.rate_limit(v_user, 'trade', 30);
-  if not (p_shares > 0 and p_shares < 1e12) then raise exception 'Enter a number of shares greater than 0.'; end if;
+  if p_shares is null or not (p_shares > 0 and p_shares < 1e12) then raise exception 'Enter a number of shares greater than 0.'; end if;
+  perform pg_advisory_xact_lock(hashtext('market:' || p_market_id));
   select * into pf from public.portfolios where user_id = v_user for update;
   select * into pos from public.positions where user_id = v_user and market_id = p_market_id and side = p_side for update;
   if pos.user_id is null then raise exception 'You have no shares to sell.'; end if;
   if exists (select 1 from public.resolutions where market_id = p_market_id) then
     raise exception 'This market is resolved. Positions settle automatically.';
   end if;
-  select * into q from private.quote(p_market_id, p_side);
-  perform private.check_price(p_seen_price, q.price);
   qty := round(p_shares, 4);
   if qty > pos.shares then raise exception 'You only own % shares.', pos.shares; end if;
+  select * into q from private.quote(p_market_id, p_side);
+  if q.err is not null then return jsonb_build_object('error', q.err); end if;
+  if private.price_moved(p_seen_price, q.price) is not null then return jsonb_build_object('error', private.price_moved(p_seen_price, q.price)); end if;
   full_sale := pos.shares - qty < 0.0001;
   sold := case when full_sale then pos.shares else qty end;
-  proceeds := round(sold * q.price, 2);
+  -- Proceeds round down, so selling dust can never create money.
+  proceeds := trunc(sold * q.price, 2);
   cost_part := case when full_sale then pos.cost_basis else round(sold * pos.cost_basis / pos.shares, 2) end;
   pnl := proceeds - cost_part;
-  if not full_sale and proceeds < 0.01 then raise exception 'Sale is too small to produce any proceeds.'; end if;
+  if not full_sale and proceeds < 0.01 then return jsonb_build_object('error', 'Sale is too small to produce any proceeds.'); end if;
 
   if full_sale then
     delete from public.positions where user_id = v_user and market_id = p_market_id and side = p_side;
@@ -664,9 +829,14 @@ end $$;
 /** Starts a new run at $50,000: open positions and any blackjack hand are cleared. */
 create or replace function public.reset_balance() returns jsonb
 language plpgsql volatile security definer set search_path = '' as $$
-declare v_user uuid := private.uid(); pf public.portfolios; cleared int;
+declare v_user uuid := private.uid(); pf public.portfolios; cleared int; last_reset timestamptz;
 begin
   select * into pf from public.portfolios where user_id = v_user for update;
+  -- One reset a day, so going all in and resetting after every loss isn't free.
+  select max(created_at) into last_reset from public.history where user_id = v_user and type = 'reset';
+  if last_reset > now() - interval '24 hours' then
+    raise exception 'You can reset once every 24 hours. Next reset after %.', to_char(last_reset + interval '24 hours', 'Mon DD, HH24:MI "UTC"');
+  end if;
   select count(*) into cleared from public.positions where user_id = v_user;
   delete from public.positions where user_id = v_user;
   delete from public.blackjack_tables where user_id = v_user;
@@ -707,7 +877,7 @@ begin
   for u in select distinct user_id from public.positions where market_id = p_market order by user_id loop
     select * into pf from public.portfolios where user_id = u for update;
     for pos in select * from public.positions where user_id = u and market_id = p_market for update loop
-      payout := case when p_outcome = 'void' then pos.cost_basis when pos.side = p_outcome then round(pos.shares, 2) else 0 end;
+      payout := case when p_outcome = 'void' then pos.cost_basis when pos.side = p_outcome then trunc(pos.shares, 2) else 0 end;
       pnl := case when p_outcome = 'void' then 0 else payout - pos.cost_basis end;
       update public.portfolios set cash = cash + payout, realized_pnl = realized_pnl + pnl, updated_at = now() where user_id = u;
       insert into public.history (user_id, run, type, market_id, market_title, side, shares, price, amount, realized_pnl, note)
@@ -727,6 +897,8 @@ create or replace function private.resolve(p_market text, p_outcome text, p_sour
 language plpgsql volatile set search_path = '' as $$
 begin
   if p_outcome not in ('yes', 'no', 'void') then return 0; end if;
+  -- Waits for any trade in flight on this market (see buy and sell).
+  perform pg_advisory_xact_lock(hashtext('market:' || p_market));
   insert into public.resolutions (market_id, outcome, source, title) values (p_market, p_outcome, p_source, coalesce(p_title, ''))
   on conflict (market_id) do nothing;
   if not found then return 0; end if;
@@ -820,7 +992,7 @@ begin
   v_result := private.rand_int(37);
   for b in select * from jsonb_array_elements(p_bets) loop
     amt := round((b ->> 'amount')::numeric, 2);
-    if not (amt >= 1 and amt <= 1e9) then raise exception 'Each bet must be at least $1.'; end if;
+    if amt is null or not (amt >= 1 and amt <= 1e9) then raise exception 'Each bet must be at least $1.'; end if;
     select * into bet from private.roulette_bet(b ->> 'key');
     staked := staked + amt;
     if v_result = any (bet.nums) then returned := returned + amt * (bet.odds + 1); end if;
@@ -856,7 +1028,7 @@ begin
   if p_rows not in (8, 12, 16) or p_risk not in ('low', 'medium', 'high') then raise exception 'Pick 8, 12 or 16 rows and a risk level.'; end if;
   if p_balls is null or p_balls < 1 or p_balls > 25 then raise exception 'Drop between 1 and 25 balls.'; end if;
   amt := round(p_amount, 2);
-  if not (amt >= 0.1 and amt <= 1e9) then raise exception 'Enter a bet of at least $0.10.'; end if;
+  if amt is null or not (amt >= 0.1 and amt <= 1e9) then raise exception 'Enter a bet of at least $0.10.'; end if;
   select * into pf from public.portfolios where user_id = v_user for update;
   total := amt * p_balls;
   if total > pf.cash then raise exception 'Not enough cash for % balls at $% each.', p_balls, amt; end if;
@@ -867,7 +1039,7 @@ begin
     for r in 1..p_rows loop path := path || private.rand_int(2); end loop;
     k := (select sum(x) from unnest(path) x);
     m := mults[k + 1];
-    ret := round(amt * m, 2);
+    ret := trunc(amt * m, 2);
     returned := returned + ret;
     perform private.game_round(v_user, pf.run, 'plinko', amt, ret, format('%s× · %s rows, %s risk', m, p_rows, p_risk));
     balls := balls || jsonb_build_object('path', to_jsonb(path), 'bucket', k, 'multiplier', m, 'returned', ret);
@@ -974,7 +1146,7 @@ begin
       when dealer_total > 21 or v > dealer_total then 'win'
       when v = dealer_total then 'push'
       else 'lose' end;
-    back := round(case outcome when 'blackjack' then (h ->> 'bet')::numeric * 2.5 when 'win' then (h ->> 'bet')::numeric * 2
+    back := trunc(case outcome when 'blackjack' then (h ->> 'bet')::numeric * 2.5 when 'win' then (h ->> 'bet')::numeric * 2
       when 'push' then (h ->> 'bet')::numeric else 0 end, 2);
     returned := returned + back;
     staked := staked + (h ->> 'bet')::numeric;
@@ -1082,7 +1254,7 @@ begin
   select state into s from public.blackjack_tables where user_id = p_user for update;
   if s is null then
     shoe := private.bj_new_shoe();
-    s := jsonb_build_object('phase', 'betting', 'shoe', shoe, 'cut', 78, 'dealer', '[]'::jsonb, 'hands', '[]'::jsonb,
+    s := jsonb_build_object('phase', 'betting', 'shoe', shoe, 'cut', 156, 'dealer', '[]'::jsonb, 'hands', '[]'::jsonb,
       'active', 0, 'insurance', 0, 'result', null);
     insert into public.blackjack_tables (user_id, state) values (p_user, s);
   end if;
@@ -1106,7 +1278,7 @@ language plpgsql volatile security definer set search_path = '' as $$
 declare v_user uuid := private.uid(); pf public.portfolios; s jsonb; bet numeric := round(p_bet, 2); shoe jsonb;
 begin
   perform private.rate_limit(v_user, 'game', 40);
-  if not (bet >= 1 and bet <= 1e9) then raise exception 'Bets start at $1.'; end if;
+  if bet is null or not (bet >= 1 and bet <= 1e9) then raise exception 'Bets start at $1.'; end if;
   select * into pf from public.portfolios where user_id = v_user for update;
   s := private.bj_load(v_user);
   if s ->> 'phase' in ('insurance', 'player') then raise exception 'Finish the current hand first.'; end if;
@@ -1116,7 +1288,7 @@ begin
     'active', 0, 'insurance', 0, 'result', null, 'reshuffled', false, 'run', pf.run);
   if jsonb_array_length(s -> 'shoe') <= (s ->> 'cut')::int then
     shoe := private.bj_new_shoe();
-    s := s || jsonb_build_object('shoe', shoe, 'cut', 78, 'reshuffled', true);
+    s := s || jsonb_build_object('shoe', shoe, 'cut', 156, 'reshuffled', true);
   end if;
   s := private.bj_draw(s, 0);
   s := private.bj_draw(s, -1);
@@ -1253,6 +1425,8 @@ declare m jsonb; n int := 0; y numeric; no_ numeric;
 begin
   for m in select * from jsonb_array_elements(p_markets) loop
     continue when coalesce(m ->> 'id', '') !~ '^[A-Za-z0-9_.~:-]+$' or length(m ->> 'id') > 400 or coalesce(m ->> 'title', '') = '';
+    -- A sane market is a few KB; anything far bigger is a bad feed, not a market.
+    continue when length(m::text) > 20000 or length(coalesce(m -> 'labels' ->> 'yes', '')) > 100 or length(coalesce(m -> 'labels' ->> 'no', '')) > 100;
     y := (m ->> 'yesPrice')::numeric;
     no_ := (m ->> 'noPrice')::numeric;
     continue when y is null or no_ is null or y < 0 or y > 1 or no_ < 0 or no_ > 1;
@@ -1383,6 +1557,9 @@ language plpgsql volatile security definer set search_path = '' as $$
 declare v_user uuid := private.uid(); r public.fair_seeds;
 begin
   if coalesce(p_client_seed, '') !~ '^[!-~]{1,64}$' then raise exception 'Client seeds use 1 to 64 letters, numbers or symbols, with no spaces.'; end if;
+  -- Lock first: a round starting at the same moment must either be visible
+  -- here or wait, or its server seed could be revealed while it's open.
+  perform 1 from public.portfolios where user_id = v_user for update;
   if private.round_active(v_user) then raise exception 'Finish your Mines or Chicken Cross round before changing seeds.'; end if;
   r := private.fair_load(v_user);
   update public.fair_seeds set prev_server_seed = r.server_seed, prev_client_seed = r.client_seed, prev_nonce = r.nonce,
@@ -1395,7 +1572,7 @@ create or replace function private.bet_amount(p_amount numeric) returns numeric
 language plpgsql immutable set search_path = '' as $$
 declare amt numeric := round(p_amount, 2);
 begin
-  if not (amt >= 0.1 and amt <= 1e9) then raise exception 'Enter a bet of at least $0.10.'; end if;
+  if amt is null or not (amt >= 0.1 and amt <= 1e9) then raise exception 'Enter a bet of at least $0.10.'; end if;
   return amt;
 end $$;
 
@@ -1419,7 +1596,7 @@ begin
   chance := case when p_over then 10000 - t else t end;
   mult := floor(99000000::numeric / chance) / 10000;
   win := case when p_over then v_roll > t else v_roll < t end;
-  ret := case when win then round(amt * mult, 2) else 0 end;
+  ret := case when win then trunc(amt * mult, 2) else 0 end;
   update public.portfolios set cash = cash - amt where user_id = v_user;
   perform private.game_round(v_user, pf.run, 'dice', amt, ret, format('Rolled %s · %s %s (%s)',
     to_char(v_roll / 100.0, 'FM990.00'), case when p_over then 'over' else 'under' end, to_char(t / 100.0, 'FM990.00'), private.fmt_mult(mult)));
@@ -1469,7 +1646,7 @@ begin
     'phase', s ->> 'phase', 'bet', (s ->> 'bet')::numeric, 'mines', m, 'revealed', s -> 'revealed', 'gems', gems,
     'multiplier', private.mines_mult(m, gems),
     'nextMultiplier', case when gems < 25 - m then private.mines_mult(m, gems + 1) end,
-    'payout', round((s ->> 'bet')::numeric * private.mines_mult(m, gems), 2),
+    'payout', least(trunc((s ->> 'bet')::numeric * private.mines_mult(m, gems), 2), 1e12),
     'nonce', (s ->> 'nonce')::int,
     'result', case when s ->> 'phase' = 'done' then (s -> 'result') || jsonb_build_object('positions', s -> 'positions') end);
 end $$;
@@ -1477,7 +1654,9 @@ end $$;
 create or replace function private.mines_finish(p_user uuid, s jsonb, p_win boolean, p_hit int) returns jsonb
 language plpgsql volatile set search_path = '' as $$
 declare gems int := jsonb_array_length(s -> 'revealed'); m int := (s ->> 'mines')::int; bet numeric := (s ->> 'bet')::numeric;
-  mult numeric := case when p_win then private.mines_mult(m, gems) else 0 end; ret numeric := round(bet * mult, 2);
+  mult numeric := case when p_win then private.mines_mult(m, gems) else 0 end;
+  -- Payouts round down to the cent (rounding up gave tiny bets an edge) and stop at $1 trillion.
+  ret numeric := least(trunc(bet * mult, 2), 1e12);
 begin
   perform private.game_round(p_user, (s ->> 'run')::int, 'mines', bet, ret,
     case when p_win then format('%s gem%s · %s mine%s (%s)', gems, case when gems = 1 then '' else 's' end, m, case when m = 1 then '' else 's' end, private.fmt_mult(mult))
@@ -1493,8 +1672,9 @@ language plpgsql volatile set search_path = '' as $$
 declare pf public.portfolios; amt numeric := private.bet_amount(p_amount); fs record;
 begin
   if p_mines is null or p_mines < 1 or p_mines > 24 then raise exception 'Pick 1 to 24 mines.'; end if;
-  if private.round_active(p_user) then raise exception 'Finish the current round first.'; end if;
+  -- Lock before checking, so two starts (or a start and a seed change) can't race.
   select * into pf from public.portfolios where user_id = p_user for update;
+  if private.round_active(p_user) then raise exception 'Finish the current round first.'; end if;
   if amt > pf.cash then raise exception 'Not enough cash for this bet.'; end if;
   update public.portfolios set cash = cash - amt where user_id = p_user;
   select * into fs from private.fair_next(p_user);
@@ -1625,7 +1805,7 @@ begin
     'phase', s ->> 'phase', 'bet', (s ->> 'bet')::numeric, 'difficulty', d, 'lane', lane, 'lanes', c.lanes,
     'multiplier', private.chicken_mult(d, lane),
     'nextMultiplier', case when lane < c.lanes then private.chicken_mult(d, lane + 1) end,
-    'payout', round((s ->> 'bet')::numeric * private.chicken_mult(d, lane), 2),
+    'payout', least(trunc((s ->> 'bet')::numeric * private.chicken_mult(d, lane), 2), 1e12),
     'nonce', (s ->> 'nonce')::int,
     'result', case when s ->> 'phase' = 'done' then s -> 'result' end);
 end $$;
@@ -1633,7 +1813,8 @@ end $$;
 create or replace function private.chicken_finish(p_user uuid, s jsonb, p_win boolean) returns jsonb
 language plpgsql volatile set search_path = '' as $$
 declare lane int := (s ->> 'lane')::int; d text := s ->> 'difficulty'; bet numeric := (s ->> 'bet')::numeric;
-  mult numeric := case when p_win then private.chicken_mult(d, lane) else 0 end; ret numeric := round(bet * mult, 2);
+  mult numeric := case when p_win then private.chicken_mult(d, lane) else 0 end;
+  ret numeric := least(trunc(bet * mult, 2), 1e12);
   label text := initcap(d);
 begin
   perform private.game_round(p_user, (s ->> 'run')::int, 'chicken', bet, ret,
@@ -1651,8 +1832,8 @@ language plpgsql volatile set search_path = '' as $$
 declare pf public.portfolios; amt numeric := private.bet_amount(p_amount); c record; fs record; f float8[]; crash int; i int;
 begin
   select * into c from private.chicken_cfg(p_difficulty);
-  if private.round_active(p_user) then raise exception 'Finish the current round first.'; end if;
   select * into pf from public.portfolios where user_id = p_user for update;
+  if private.round_active(p_user) then raise exception 'Finish the current round first.'; end if;
   if amt > pf.cash then raise exception 'Not enough cash for this bet.'; end if;
   update public.portfolios set cash = cash - amt where user_id = p_user;
   select * into fs from private.fair_next(p_user);

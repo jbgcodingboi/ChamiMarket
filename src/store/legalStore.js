@@ -10,6 +10,11 @@ const readAccepted = () => readJSON(KEY, (v) => isPlainObject(v) && typeof v.ver
 export const useLegalStore = create((set) => ({
   accepted: readAccepted(),
 
+  /** Picks up an agreement made in another tab. */
+  reload() {
+    set({ accepted: readAccepted() })
+  },
+
   accept() {
     writeJSON(KEY, { version: TERMS_VERSION, at: new Date().toISOString() })
     set({ accepted: true })

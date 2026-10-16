@@ -139,6 +139,12 @@ describe('results and settlement', () => {
     expect(res[key]).toEqual({ outcome: 'void', total: null })
     expect(houseOutcome(`${key}-win`, res)).toBe('void')
   })
+  it('voids a game that vanished from the calendar a week ago, but only when told the feed worked', () => {
+    const now = Date.parse('2026-10-16T12:00:00Z')
+    expect(houseOutcome('cham-999-20261001-win', {}, now)).toBe('void')
+    expect(houseOutcome('cham-999-20261012-win', {}, now)).toBeNull() // too recent
+    expect(houseOutcome('cham-999-20261001-win', {})).toBeNull() // no feed check
+  })
   it('voids games with no posted result after three days', () => {
     const res = buildResults(games, Date.parse('2026-10-21T00:00:00Z'))
     expect(houseOutcome(win.id, res)).toBe('void')
