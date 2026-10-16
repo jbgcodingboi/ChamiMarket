@@ -5,6 +5,7 @@
  * loaded on first use, so local mode never downloads it.
  */
 import { BACKEND_ENABLED, loginEmail, SUPABASE_ANON_KEY, SUPABASE_URL, USERNAME_EMAIL_DOMAIN } from './config.js'
+import { TERMS_VERSION } from '../../config.js'
 
 export class BackendError extends Error {
   constructor(message, field) {
@@ -57,7 +58,7 @@ const toUser = (authUser, username) => ({
 
 export async function signUp({ identifier, password, username }) {
   const sb = await client()
-  const { data, error } = await sb.auth.signUp({ email: loginEmail(identifier), password, options: { data: { username } } })
+  const { data, error } = await sb.auth.signUp({ email: loginEmail(identifier), password, options: { data: { username, terms_version: TERMS_VERSION, terms_accepted_at: new Date().toISOString() } } })
   if (error) throw new BackendError(friendly(error), /password/i.test(error.message) ? 'password' : 'identifier')
   if (!data.session) {
     throw new BackendError('Your account was created, but Supabase is asking for email confirmation. Turn off "Confirm email" in the Supabase dashboard so players can log in right away.')
@@ -136,6 +137,8 @@ export async function serverMarkets({ categories, ids = [] }) {
   const seen = new Set()
   return rows
     .filter((r) => !seen.has(r.id) && seen.add(r.id))
+    // Parlays are no longer offered; older ones only load for players who hold them.
+    .filter((r) => !r.id.startsWith('q-parlay-') || ids.includes(r.id))
     .map((r) => ({ ...r.data, id: r.id, yesPrice: Number(r.yes_price), noPrice: Number(r.no_price), closed: r.closed }))
 }
 

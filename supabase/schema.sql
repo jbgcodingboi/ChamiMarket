@@ -594,6 +594,8 @@ declare v_user uuid := private.uid(); pf public.portfolios; q record; spend nume
 begin
   perform private.rate_limit(v_user, 'trade', 30);
   if not (p_amount >= 0.01 and p_amount < 1e12) then raise exception 'Enter an amount of at least $0.01.'; end if;
+  -- Parlays are no longer offered. Positions opened earlier can still be sold and settle as before.
+  if p_market_id like 'q-parlay-%' then raise exception 'Parlays are no longer offered.'; end if;
   select * into pf from public.portfolios where user_id = v_user for update;
   select * into q from private.quote(p_market_id, p_side);
   perform private.check_price(p_seen_price, q.price);

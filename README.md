@@ -142,17 +142,16 @@ to freshman, for the next two weeks.
 
 The **Quick** tab is for trades that settle in minutes or hours. All of these are house-priced (no betting market
 exists for them), labelled "House odds", and settle automatically from public data. Market ids describe the market
-completely (coin and window, station and date, stock and session, parlay legs), so any browser can price and settle
-them without shared state. Code: `src/services/quick/`.
+completely (coin and window, station and date, stock and session), so any browser can price and settle them
+without shared state. Code: `src/services/quick/`.
 
 | Market | Odds | Trading closes | Settles from | Typical wait |
 | --- | --- | --- | --- | --- |
 | Bitcoin / Ethereum up or down, next two 15-minute windows | 50% | Window start | Coinbase 1-minute candles (browser) | ~1 min after the window |
 | Bitcoin / Ethereum above $K at the top of the hour (two strikes around the hour's open) | Live: digital option N(d2) from spot and the last hour's volatility | 15 min before the hour | Coinbase 1-minute candles (browser) | ~1 min after the hour |
-| Central Park / Islip (Long Island) "hits X°F" today and tomorrow, on round 5°F lines near the forecast, only when 12%–88% | NWS forecast high with ~2.5°F (today) / 3.5°F (tomorrow) error | 11:00 AM ET that day | NWS Daily Climate Report: a Yes from the 4 PM report, otherwise the overnight final | Same afternoon or overnight |
-| Central Park / Islip "rain or snow" (≥ 0.01 in), only when 15%–85% | NWS chance of precipitation | 7:00 AM ET that day | NWS Daily Climate Report | Same afternoon or overnight |
+| Central Park / Mineola (Long Island) "hits X°F" today and tomorrow, on round 5°F lines near the forecast, only when 12%–88% | NWS forecast high with ~2.5°F (today) / 3.5°F (tomorrow) error, 1°F wider for Mineola | 11:00 AM ET that day | NWS Daily Climate Report: a Yes from the 4 PM report, otherwise the overnight final. Mineola has no climate station, so it settles at JFK Airport, the closest one | Same afternoon or overnight |
+| Central Park / Mineola "rain or snow" (≥ 0.01 in), only when 15%–85% | NWS chance of precipitation | 7:00 AM ET that day | NWS Daily Climate Report (JFK Airport for Mineola) | Same afternoon or overnight |
 | S&P 500 (SPY) and Nasdaq-100 (QQQ) "up on <day>?" for the next NYSE session | 53% (long-run share of up days) | 9:30 AM ET open | Official closes, fetched every 15 minutes by the deploy job (Yahoo Finance; no browser access) | ~15–30 min after the close |
-| Daily parlays: 2–3 favorites (55%–85% each) from games starting in the next 24 hours, never below 15% combined | Product of the legs' live prices | First leg's start | The legs: any loss settles No at once, all wins settle Yes, a void voids it | As soon as the legs settle |
 
 **Faster game results**: tonight's NFL, college football, NBA, MLB and NHL moneyline markets (two team-name
 outcomes) settle from ESPN's public scoreboard as soon as a game is final, instead of waiting hours for
@@ -299,7 +298,7 @@ sync job still runs on GitHub). For local development copy `.env.example` to `.e
   address (`<username>@users.chamimarket.app`). Nothing is ever sent to it. Set `VITE_USERNAME_EMAIL_DOMAIN`
   before launch if you want a different domain; changing it later breaks existing username logins.
 - **Testing**: `npm run test:db` runs `supabase/tests/schema.test.sql` (sign-up, row level security, trades,
-  price checks, settlement, parlays, all three games with rigged decks, the leaderboard, resets, rate limits and
+  price checks, settlement, retired parlays, every game with rigged decks, the leaderboard, resets, rate limits and
   recovery codes) against a local Postgres, using `supabase/tests/supabase-stub.sql` in place of Supabase's auth
   schema. CI runs it on every deploy.
 
