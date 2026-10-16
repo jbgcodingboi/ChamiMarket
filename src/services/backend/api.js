@@ -103,9 +103,9 @@ export async function resetPassword({ identifier, code, password }) {
 }
 
 /** Deletes the signed-in account and all of its data on the server, then signs out here. */
-export async function deleteAccount(password) {
-  const res = await rpc('delete_account', { p_password: password })
-  if (res?.error) throw new BackendError(res.error, 'password')
+export async function deleteAccount(confirm) {
+  const res = await rpc('delete_account', { p_confirm: confirm })
+  if (res?.error) throw new BackendError(res.error)
   const sb = await client()
   // The account is gone on the server, so only the local session needs clearing.
   await sb.auth.signOut({ scope: 'local' }).catch(() => {})
