@@ -203,7 +203,7 @@ describe('games and the portfolio', () => {
     expect(p.cash).toBe(STARTING_CASH + 120)
     expect(gamesOf(p).pending).toHaveLength(0)
     expect(gamesOf(p).stats.roulette).toMatchObject({ rounds: 1, wagered: 50, net: -50 })
-    expect(runGames(p)).toEqual({ net: 120, rounds: 3 })
+    expect(runGames(p)).toEqual({ net: 120, rounds: 3, wagered: 170, best: 150 })
     expect(place({ game: 'plinko', staked: 1e9, returned: 0 })).toBeNull()
   })
   it('drops rounds from before a balance reset', () => {
@@ -211,7 +211,7 @@ describe('games and the portfolio', () => {
     const run = debit(10)
     const reset = resetPortfolio(useAccountStore.getState().portfolio)
     useAccountStore.setState({ portfolio: reset })
-    expect(runGames(reset)).toEqual({ net: 0, rounds: 0 })
+    expect(runGames(reset)).toEqual({ net: 0, rounds: 0, wagered: 0, best: 0 })
     expect(finish(id)).toBeNull()
     expect(settle({ run, game: 'blackjack', staked: 10, returned: 20 })).toBeNull()
     expect(cash()).toBe(reset.cash)
@@ -221,5 +221,18 @@ describe('games and the portfolio', () => {
     useAccountStore.setState({ user: null, portfolio: null })
     expect(debit(10)).toBeNull()
     expect(place({ game: 'plinko', staked: 10, returned: 0 })).toBeNull()
+  })
+})
+
+describe('leaderboard figures', () => {
+  it('gives simulated pros stable game stats near the house edge', async () => {
+    const { PRO_TRADERS, simGameStats } = await import('../services/mockTraders.js')
+    for (const t of PRO_TRADERS) {
+      const g = simGameStats(t.name)
+      expect(simGameStats(t.name)).toEqual(g)
+      expect(g.rounds).toBeGreaterThan(0)
+      expect(Math.abs(g.net)).toBeLessThan(g.wagered * 0.1)
+      expect(['roulette', 'blackjack', 'plinko', 'dice', 'mines', 'chicken']).toContain(g.favorite)
+    }
   })
 })

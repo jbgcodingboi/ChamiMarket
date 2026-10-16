@@ -34,9 +34,15 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm audit --audit-level=high --omit=dev
       - run: npm test
+      - name: Database tests (supabase/schema.sql on the runner's Postgres)
+        run: npm run test:db
       - name: Fetch Polymarket and Chaminade snapshots
         run: npm run snapshot
       - run: npm run build
+        env:
+          # Public Supabase settings (safe to ship in the page). Empty means the app runs in local mode.
+          VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
       - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
         with:
           path: dist

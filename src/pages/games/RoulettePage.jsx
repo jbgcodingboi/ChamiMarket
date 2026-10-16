@@ -5,7 +5,9 @@ import RouletteTable from '../../components/games/roulette/RouletteTable.jsx'
 import RouletteWheel from '../../components/games/roulette/RouletteWheel.jsx'
 import { useDocumentTitle } from '../../hooks/useDocumentTitle.js'
 import { colorOf, ODDS, spin, totalReturn } from '../../games/roulette.js'
-import { finish, place, useChips } from '../../store/gameStore.js'
+import { playRoulette } from '../../services/backend/api.js'
+import { BACKEND_ENABLED } from '../../services/backend/config.js'
+import { finish, holdServerPortfolio, place, useChips } from '../../store/gameStore.js'
 import { toast } from '../../store/toastStore.js'
 import { roundMoney } from '../../utils/math.js'
 import { readJSON, writeJSON } from '../../utils/storage.js'
@@ -70,6 +72,7 @@ export default function RoulettePage() {
   const [round, setRound] = useState(null)
   const [outcome, setOutcome] = useState(null)
   const [recent, setRecent] = useState(() => readJSON(RECENT_KEY, isRecent, []))
+  const [asking, setAsking] = useState(false)
 
   const bets = useMemo(() => combine(stack), [stack])
   const total = roundMoney(stack.reduce((a, s) => a + s.amount, 0))
@@ -98,11 +101,28 @@ export default function RoulettePage() {
     setStack((s) => [...s, ...s])
   }
 
-  const startSpin = () => {
-    if (!total || spinning) return
-    const result = spin()
+  const startSpin = async () => {
+    if (!total || spinning || asking) return
     const list = Object.values(bets)
-    const returned = roundMoney(totalReturn(list, result))
+    let result
+    let returned
+    let server = null
+    if (BACKEND_ENABLED) {
+      // The server spins the wheel and pays out; the wheel here just shows the result.
+      setAsking(true)
+      try {
+        server = await playRoulette(list.map((b) => ({ key: b.key, amount: b.amount })))
+      } catch (err) {
+        return toast({ tone: 'error', title: 'Spin not accepted', description: err.message })
+      } finally {
+        setAsking(false)
+      }
+      result = server.result
+      returned = roundMoney(Number(server.returned))
+    } else {
+      result = spin()
+      returned = roundMoney(totalReturn(list, result))
+    }
     const id = place({
       game: 'roulette',
       staked: total,
@@ -110,6 +130,7 @@ export default function RoulettePage() {
       detail: `${result} ${colorName(result)} · ${list.length} bet${list.length === 1 ? '' : 's'}`,
     })
     if (!id) return toast({ tone: 'error', title: 'Not enough chips' })
+    if (server) holdServerPortfolio(server.portfolio)
     setOutcome(null)
     setRound({ key: (round?.key ?? 0) + 1, result, id, staked: total, returned, done: false })
   }
@@ -194,8 +215,8 @@ export default function RoulettePage() {
           <button type="button" className="btn btn-ghost" disabled={spinning || stack.length > 0 || !lastStack.length} onClick={rebet}>
             Rebet
           </button>
-          <button type="button" className="btn btn-primary ml-auto min-w-32 px-6" disabled={spinning || !total} onClick={startSpin}>
-            {spinning ? 'Spinning…' : 'Spin'}
+          <button type="button" className="btn btn-primary ml-auto min-w-32 px-6" disabled={spinning || asking || !total} onClick={startSpin}>
+            {spinning || asking ? 'Spinning…' : 'Spin'}
           </button>
         </div>
       </section>

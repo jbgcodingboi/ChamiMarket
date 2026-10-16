@@ -5,7 +5,9 @@ import { useAccountStore } from '../../store/accountStore.js'
 import { toast } from '../../store/toastStore.js'
 import { useUiStore } from '../../store/uiStore.js'
 import { formatCurrency } from '../../utils/format.js'
-import { BriefcaseIcon, ChevronDownIcon, LogOutIcon, RefreshIcon, TrophyIcon } from '../ui/Icons.jsx'
+import { BriefcaseIcon, ChevronDownIcon, InfoIcon, LogOutIcon, RefreshIcon, TrophyIcon } from '../ui/Icons.jsx'
+import { BACKEND_ENABLED } from '../../services/backend/config.js'
+import { createRecoveryCode } from '../../services/backend/api.js'
 
 export default function UserMenu() {
   const user = useAccountStore((s) => s.user)
@@ -96,6 +98,23 @@ export default function UserMenu() {
             >
               <RefreshIcon className="text-muted" /> Reset balance
             </button>
+            {BACKEND_ENABLED && (
+              <button
+                role="menuitem"
+                type="button"
+                className={item}
+                onClick={async () => {
+                  setOpen(false)
+                  try {
+                    useUiStore.getState().showRecovery(await createRecoveryCode(), 'new')
+                  } catch (err) {
+                    toast({ tone: 'error', title: 'Could not make a new code', description: err.message })
+                  }
+                }}
+              >
+                <InfoIcon className="text-muted" /> New recovery code
+              </button>
+            )}
             <button
               role="menuitem"
               type="button"
@@ -103,7 +122,7 @@ export default function UserMenu() {
               onClick={() => {
                 setOpen(false)
                 logOut()
-                toast({ title: 'Logged out', description: 'Your paper portfolio is saved on this device.' })
+                toast({ title: 'Logged out', description: BACKEND_ENABLED ? 'Your paper portfolio is saved to your account.' : 'Your paper portfolio is saved on this device.' })
               }}
             >
               <LogOutIcon /> Log out

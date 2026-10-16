@@ -33,13 +33,13 @@ export default function SellForm({ market, position, defaultPercent = 0, onDone 
     else setSharesText(pct > 0 ? String(roundShares((position.shares * pct) / 100)) : '')
   }
 
-  const submit = (e) => {
+  const submit = async (e) => {
     e.preventDefault()
     if (submitting.current || !preview.valid) return
     submitting.current = true
     setBusy(true)
     try {
-      const { preview: done } = sell({ marketId: position.marketId, side: position.side, shares: preview.shares })
+      const { preview: done } = await sell({ marketId: position.marketId, side: position.side, shares: preview.shares })
       toast({
         tone: 'success',
         title: `Sold ${formatShares(done.shares)} ${market?.labels[position.side] ?? position.side} shares`,

@@ -72,7 +72,7 @@ function BuyForm({ market, side, onDone }) {
   const add = (v) => setAmountText((prev) => String(roundMoney((Number(prev) || 0) + v)))
   const max = () => setAmountText(String(Math.floor(cash * 100) / 100))
 
-  const submit = (e) => {
+  const submit = async (e) => {
     e.preventDefault()
     if (!user) {
       openAuth('login', 'Log in to trade')
@@ -82,7 +82,7 @@ function BuyForm({ market, side, onDone }) {
     submitting.current = true
     setBusy(true)
     try {
-      const entry = buy({ marketId: market.id, side, amount: preview.amount })
+      const entry = await buy({ marketId: market.id, side, amount: preview.amount })
       toast({
         tone: 'success',
         title: `Bought ${formatShares(entry.shares)} ${market.labels[side]} shares`,

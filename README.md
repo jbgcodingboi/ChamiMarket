@@ -1,8 +1,9 @@
 # Chami Market
 
 A paper trading prediction market. Browse live Sports and Top Politics odds, buy and sell Yes/No shares with
-**play money**, and track your PnL, net worth and rank. Everything runs in the browser: there is no backend, no
-real money, nothing to fund and nothing to cash out.
+**play money**, and track your PnL, net worth and rank. It runs fully in the browser out of the box, or with an
+optional Supabase backend for real accounts, a shared leaderboard and a live feed (see
+[Backend](#backend-supabase)). There is never any real money, nothing to fund and nothing to cash out.
 
 > **Paper trading, play money only.** Chami Market is an independent demo. It is not affiliated with, endorsed
 > by or connected to Polymarket or any other prediction market or exchange. Balances have no cash value and
@@ -24,6 +25,8 @@ npm run dev        # http://localhost:5173
 | `npm run lint`    | oxlint                                              |
 | `npm run check`   | lint + tests + build                                |
 | `npm run snapshot`| Fetch the Polymarket, Chaminade and stock data into `public/data/` |
+| `npm run test:db` | Database tests for `supabase/schema.sql` on a throwaway local Postgres 16+ |
+| `npm run sync`    | Push prices and results to the Supabase backend by hand (needs the service key) |
 
 Requires Node 20.19+ (Node 22 recommended).
 
@@ -42,10 +45,13 @@ Requires Node 20.19+ (Node 22 recommended).
 - **Settlement**: automatic, from the official result. When Polymarket reports a held market closed with a
   clear winner, positions pay out on the next price refresh. Trading locks as soon as an event's end date passes.
 - **Reset**: back to $50,000 behind a confirmation modal that requires typing `RESET`.
-- **Social**: an activity feed mixing your local trades with clearly tagged simulated trades, and a leaderboard
-  of local accounts plus simulated pro traders.
+- **Social**: an activity feed mixing your local trades with clearly tagged simulated trades, and three
+  leaderboards of local accounts plus simulated pros: **Overall** (net worth), **Markets** (trading PnL this run:
+  realized plus unrealized, leaving out games) and **Games** (net game winnings this run, with rounds, amount
+  wagered, biggest win and favorite game). Markets PnL plus games net always equals the overall PnL. The selected
+  board is kept in the URL (`#/leaderboard?board=games`).
 - **Guest mode**: everything is browsable without an account; trading, the portfolio and resets need one.
-- **Games**: Roulette, Blackjack and Plinko, played with your portfolio cash (see below).
+- **Games**: Roulette, Blackjack, Plinko, Dice, Mines and Chicken Cross, played with your portfolio cash (see below).
 
 ## How the paper trading math works
 
@@ -154,7 +160,7 @@ Polymarket's resolution. Only markets whose outcomes match both teams of one ESP
 
 ## Games
 
-The **Games** tab (between Markets and Leaderboard) has three casino games that bet with your portfolio cash, the
+The **Games** tab (between Markets and Leaderboard) has six casino games that bet with your portfolio cash, the
 same $100,000 you trade with. Wins and losses change your net worth, the equity chart and your leaderboard rank
 like any trade, and a balance reset covers games too. Playing needs an account, just like trading. Every round is
 logged on the portfolio's **Games** tab, with per-game stats (rounds, amount wagered, net) and a "Games this run"
@@ -171,6 +177,26 @@ sampling, so outcomes are unbiased.
 - **Plinko**: a canvas board with gravity and a bounce off a pin on every row. Choose 8, 12 or 16 rows, low,
   medium or high risk, and 1 to 25 balls at a time. Each ball goes left or right with equal chance at each row,
   so buckets follow a binomial distribution; every row and risk setting returns about 99% over the long run.
+
+- **Dice**: a roll from 0.00 to 100.00. Drag the slider to a target and pick Roll Over or Roll Under; the multiplier,
+  target and win chance fields stay linked. Win chances run from 2% to 98% and pay 99 ÷ chance (1.98× at 50%, 49.5×
+  at 2%), a 99% return.
+- **Mines**: a 5×5 grid with 1 to 24 mines. Each gem pays 0.99 ÷ the chance of getting that far safely (1.03× for a
+  gem with 1 mine, 24.75× with 24), a 99% return. Cash out any time, pick random tiles, or set an automatic cash out.
+- **Chicken Cross**: hop a chicken lane by lane across traffic. Easy survives 96% of lanes over 30 lanes, Medium 88%
+  over 25, Hard 80% over 22 and Daredevil 60% over 18 (up to about 9,600×). Lane n pays 0.98 ÷ chanceⁿ, a 98% return.
+  A tilted roadway with moving traffic, a multiplier on every lane's manhole, hop, cash-out and crash animations.
+
+Dice, Mines and Chicken Cross have **auto play**: a number of bets, raising the bet by a percentage after a win or a
+loss (one click sets up Martingale), and stops at a profit or loss you choose. Mines auto opens the same picked tiles
+every round; Chicken Cross auto cashes out at a lane you choose. Small synthesized sounds can be muted.
+
+They are also **provably fair**, using the scheme Stake-style games publish: each result comes from
+`HMAC-SHA256(server seed, "<client seed>:<nonce>:<round>")`, four bytes per random number. You see the SHA-256 hash
+of the server seed before betting, choose your own client seed, and the nonce counts your bets. **Change seeds**
+reveals the old server seed, and the built-in verifier recomputes any dice roll, mine layout or crash lane from it.
+With the backend, the server seed, mine positions and crash lane never leave the server until the round or seed pair
+is finished; the database functions use the same formulas, and tests check both produce identical results.
 
 The engines are pure functions in `src/games/` (with tests). A round's stake is taken when it starts and the
 payout is credited when the animation ends; if you leave the page mid-spin or mid-drop, the payout is credited
@@ -196,6 +222,9 @@ A held market that later falls outside these rules stays in your portfolio and s
 
 ## Accounts and storage
 
+This section describes **local mode** (no backend configured). With the backend, see
+[Backend](#backend-supabase): accounts and portfolios live on the server instead.
+
 Sign up and log in use a username or email plus a password. Accounts, sessions, portfolios, trade history,
 equity snapshots, resolutions, the cached market list and the shared activity feed live in `localStorage` under
 `redbook:*` keys, with a schema version and migration hook. Every read is validated; corrupted values are
@@ -212,9 +241,71 @@ When a market resolves (from the live API or the snapshot), the active account i
 refresh. Other local accounts are settled automatically the next time they log in. Once an event's end date
 passes, buying and selling stop until the result is in.
 
+## Backend (Supabase)
+
+Without a backend every browser is its own little world: accounts, the leaderboard and the feed only cover that
+browser. Connecting a free [Supabase](https://supabase.com) project turns Chami Market into one shared game:
+
+- **Real accounts** with a username or email and a password. No Google or other sign-in, no confirmation email
+  and no links. At sign-up each player gets a one-time **recovery code** (like `K7QM-2XRP-9WDT`); it is the only
+  way to reset a forgotten password, and using it issues a new one. A new code can be made from the account menu.
+- **A true leaderboard**: every player, valued on the server, on the Overall, Markets and Games boards.
+- **A live feed** of everyone's trades and game results over Supabase Realtime.
+- **Cheat-proof money.** The browser can only read; it can't write any table. Every buy, sell, reset, payout and
+  game round runs in a database function (`supabase/schema.sql`) that locks the account, prices trades from the
+  server's own data (Polymarket trades also check the live API), rejects a trade if the price the player saw is
+  more than 3¢ off, and rolls game outcomes with a cryptographic RNG on the server. Blackjack's shoe and the
+  dealer's hole card never leave the server. Calls are rate limited per player.
+- Simulated pro traders and simulated feed entries are turned off, since real players fill those spots.
+
+The app picks the mode at build time: with `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` set it uses the
+backend, otherwise it stays in local mode. Accounts made in local mode don't move over; players sign up again.
+
+### Setup
+
+1. **Create a project** at [supabase.com](https://supabase.com) (the free tier is plenty for a school).
+2. **Create the database**: open **SQL Editor**, paste all of `supabase/schema.sql` and press **Run**. It is safe
+   to run again after you update the code.
+3. **Allow live prices (recommended)**: under **Database > Extensions**, make sure **http** is enabled. Without
+   it, Polymarket trades use the prices the sync job stores every few minutes.
+4. **Configure sign-in** under **Authentication > Sign In / Providers**:
+   - **Email**: enabled, and turn **Confirm email** off. Players sign in right away and no email is ever sent.
+   - Leave every other provider off.
+   - Under **Authentication > Rate Limits**, raise the sign-up and sign-in limits if many students will register
+     from one school network (they all share an IP address).
+5. **Copy the keys** from **Project Settings > API**: the **Project URL**, the **anon / publishable** key (public)
+   and the **service_role / secret** key (private, never put it in the site or a `VITE_` variable).
+6. **Add them to GitHub** under **Settings > Secrets and variables > Actions**:
+   - Variables: `SUPABASE_URL` and `SUPABASE_ANON_KEY`
+   - Secret: `SUPABASE_SERVICE_ROLE_KEY`
+7. **Deploy**: re-run the Pages deploy (or push to `main`). Within five minutes the **Sync backend** workflow
+   starts filling in markets and results. Run it by hand from the Actions tab to start right away.
+
+On Vercel or Netlify, set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` as environment variables instead (the
+sync job still runs on GitHub). For local development copy `.env.example` to `.env.local`.
+
+### How it fits together
+
+- **Prices and results**: `scripts/sync-backend.mjs` runs every 5 minutes (`.github/workflows/sync-backend.yml`).
+  It builds the same curated Polymarket, Chaminade and Quick listings as the app, stores them in the `markets`
+  table, checks every held market against its official source and settles winners for every player at once. The
+  app lists Chaminade and Quick markets from that table, so the price a player sees is the price the server
+  trades at. It also keeps a free Supabase project from pausing for inactivity.
+- **Settlement timing**: results land on the next sync run, usually within 5 to 10 minutes (GitHub can delay
+  scheduled runs at busy times). Polymarket markets a player holds are also checked the moment they're due.
+- **Username logins**: Supabase signs people in by email, so a username-only account gets a private placeholder
+  address (`<username>@users.chamimarket.app`). Nothing is ever sent to it. Set `VITE_USERNAME_EMAIL_DOMAIN`
+  before launch if you want a different domain; changing it later breaks existing username logins.
+- **Testing**: `npm run test:db` runs `supabase/tests/schema.test.sql` (sign-up, row level security, trades,
+  price checks, settlement, parlays, all three games with rigged decks, the leaderboard, resets, rate limits and
+  recovery codes) against a local Postgres, using `supabase/tests/supabase-stub.sql` in place of Supabase's auth
+  schema. CI runs it on every deploy.
+
 ## Security
 
-There is no backend, no secret and no API key; every upstream API is public. Hardening in place:
+The site itself holds no secret: every upstream API is public, and the Supabase anon key is public by design
+(row level security and function grants decide what it can do). The service key only lives in GitHub's secrets
+for the sync job. Hardening in place:
 
 - **Content-Security-Policy**: `security.config.js` holds the policy. The build adds it as a `<meta>` tag (the
   only option on GitHub Pages), and `vercel.json` and `netlify.toml` send it as a header together with
@@ -230,9 +321,8 @@ There is no backend, no secret and no API key; every upstream API is public. Har
   (`.github/dependabot.yml`) opens weekly updates for npm packages and actions. Scheduled runs only rebuild the
   latest reviewed commit on `main` with fresh data.
 
-What can't be fixed client-side: anyone with access to the browser can read or edit `localStorage`, including
-balances and the session. That's acceptable for a single-browser play-money demo, but a shared leaderboard or
-anything with real stakes would need a server.
+In local mode anyone with access to the browser can read or edit `localStorage`, including balances and the
+session. That's fine for a single-browser demo; the Supabase backend is what makes balances trustworthy.
 
 ## Deploy
 
@@ -258,6 +348,11 @@ src/
   store/        Zustand stores: markets, accounts and portfolios, resolutions, feed, games, toasts, UI
   utils/        Pure financial math, formatters, storage, validation, hashing, safe keys (with Vitest tests)
   hooks/        Polling, debounce, price flash, portfolio metrics, leaderboard
+  services/backend/  Supabase client: sign-in, portfolio, trades, games, leaderboard, live feed
+supabase/
+  schema.sql    Tables, row level security and every server-side money function
+  tests/        Database tests and a local stand-in for Supabase's auth schema
+scripts/        Snapshot job, backend sync job and the shared server-side data sources
 ```
 
 ## Assumptions
@@ -277,8 +372,10 @@ src/
 ## Known limitations
 
 - Market orders fill entirely at the displayed price; there is no order book matching, slippage or fees.
-- The activity feed only shows real trades made in this browser, alongside simulated ones.
-- Leaderboard pro traders are simulated portfolios, tagged as such.
+- In local mode the activity feed only shows real trades made in this browser, alongside simulated ones, and the
+  leaderboard's pro traders are simulated portfolios, tagged as such. The backend replaces both with real players.
+- With the backend, a new Quick market can take up to one sync run to become tradable, and the hourly crypto
+  markets pause trading if their synced price is more than about 12 minutes old.
 - Markets that drop out of the live listing keep their last known price unless you hold them (held markets are
   refreshed individually).
 - Polymarket markets that resolve 50/50 (no clear winner) are not settled automatically.
