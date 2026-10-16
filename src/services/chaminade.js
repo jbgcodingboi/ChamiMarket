@@ -174,6 +174,9 @@ export const totalMarketId = (g, line) => `${gameKey(g)}-ou-${line}`
 
 const vsText = (g) => (g.home === 'away' ? `at ${g.opponent}` : `vs. ${g.opponent}`)
 
+/** "Varsity Football" -> "Football"; other levels keep their prefix ("JV Soccer"). */
+const shortSport = (sport) => sport.replace(/^varsity\s+/i, '')
+
 function whenText(g) {
   const d = new Date(g.start)
   const day = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric' }).format(d)
@@ -227,7 +230,7 @@ export function buildMarkets(games, now = Date.now()) {
       baseMarket(
         g,
         winMarketId(g),
-        `${g.sport}: Will Chaminade beat ${g.opponent}?`,
+        `${shortSport(g.sport)}: Will Chaminade beat ${g.opponent}?`,
         win.probability,
         `Resolves Yes if Chaminade wins this ${g.sport} game ${vsText(g)}, ${SOURCE}.${model.ties ? ' A tie resolves No.' : ''} ${VOID_RULE} ${basis}`,
       ),
@@ -238,7 +241,7 @@ export function buildMarkets(games, now = Date.now()) {
         baseMarket(
           g,
           totalMarketId(g, total.line),
-          `${g.sport}: Chaminade ${vsText(g)}, over ${total.line} total ${total.unit}?`,
+          `${shortSport(g.sport)} ${vsText(g)}: over ${total.line} ${total.unit}?`,
           total.probability,
           `Resolves Yes if both teams combine for more than ${total.line} ${total.unit} in this ${g.sport} game, ${SOURCE}. ${VOID_RULE} The line sits near the average total of Chaminade's ${g.sport.toLowerCase()} games this season.`,
         ),
