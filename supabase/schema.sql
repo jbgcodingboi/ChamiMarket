@@ -484,6 +484,60 @@ $$;
 -- Accounts
 -- ---------------------------------------------------------------------------
 
+/**
+ * Names players can't take: the simulated players' names (so nobody can pass
+ * as one, or have one pass as them) and anything that looks official.
+ * Keep the list in step with src/services/mockTraders.js (a unit test checks).
+ */
+create or replace function private.is_reserved_name(p_name text) returns boolean
+language sql immutable set search_path = '' as $$
+  select lower(trim(p_name)) = any (array[
+    'ballotmaster',
+    'benchwarmer',
+    'bullpenbets',
+    'coinflipcarl',
+    'contrarian_cat',
+    'cryptooracle',
+    'datadan',
+    'electoraledge',
+    'filibusterfred',
+    'forecastfiona',
+    'fourthandlong',
+    'gamedaygabe',
+    'gridironguru',
+    'hoopshedger',
+    'longshotlou',
+    'lucky_lena',
+    'mapleleaf_mo',
+    'marginmaya',
+    'midtermmaven',
+    'nightowl88',
+    'nottoday_nia',
+    'oddsonollie',
+    'parlayprincess',
+    'pivotpete',
+    'pollpundit',
+    'quietkelly',
+    'redzonerita',
+    'sixfigurespreads',
+    'statsgeek',
+    'swingstatesam',
+    'tipofftom',
+    'whaletrader99',
+    'yesman_jay',
+    'mod',
+    'support',
+    'staff',
+    'system',
+    'sim',
+    'root',
+    'owner',
+    'help',
+    'null',
+    'undefined'
+  ]) or lower(p_name) ~ '(admin|moderator|official|chaminade|chamimarket)'
+$$;
+
 /** Creates the profile and a $100,000 portfolio for every new sign-up. */
 create or replace function private.handle_new_user() returns trigger
 language plpgsql security definer set search_path = '' as $$
@@ -492,6 +546,7 @@ begin
   if v_name !~ '^[A-Za-z0-9_.+-]{1,20}$' then
     raise exception 'Pick a username of up to 20 letters, numbers or underscores.';
   end if;
+  if private.is_reserved_name(v_name) then raise exception 'That username is reserved. Pick another.'; end if;
   insert into public.profiles (id, username) values (new.id, v_name);
   insert into public.portfolios (user_id, cash, run_start_cash) values (new.id, 100000, 100000);
   insert into public.equity_snapshots (user_id, equity) values (new.id, 100000);
@@ -503,7 +558,8 @@ create trigger on_auth_user_created after insert on auth.users for each row exec
 
 create or replace function public.username_available(p_username text) returns boolean
 language sql stable security definer set search_path = '' as $$
-  select not exists (select 1 from public.profiles where lower(username::text) = lower(trim(p_username)))
+  select not private.is_reserved_name(p_username)
+    and not exists (select 1 from public.profiles where lower(username::text) = lower(trim(p_username)))
 $$;
 
 create or replace function public.get_portfolio() returns jsonb

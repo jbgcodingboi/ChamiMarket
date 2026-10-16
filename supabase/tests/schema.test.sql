@@ -39,6 +39,8 @@ select pg_temp.ok((select cash from public.portfolios where user_id = :'alice') 
 select pg_temp.ok((select count(*) from public.equity_snapshots where user_id = :'alice') = 1, 'sign-up records a first equity snapshot');
 select pg_temp.expect_error($$insert into auth.users (email, raw_user_meta_data) values ('c@x.test', '{"username":"ALICE"}')$$, '%duplicate%');
 select pg_temp.expect_error($$insert into auth.users (email, raw_user_meta_data) values ('d@x.test', '{"username":"no spaces"}')$$, '%username%');
+select pg_temp.expect_error($$insert into auth.users (email, raw_user_meta_data) values ('e@x.test', '{"username":"CryptoOracle"}')$$, '%reserved%');
+select pg_temp.expect_error($$insert into auth.users (email, raw_user_meta_data) values ('f@x.test', '{"username":"Chaminade_Admin"}')$$, '%reserved%');
 
 -- Markets (as the sync job) -------------------------------------------------
 set role service_role;
@@ -370,6 +372,7 @@ select pg_temp.ok((select count(*) from public.activity where kind = 'buy') = 2,
 select pg_temp.ok((select count(*) from public.portfolios) = 0, 'guests can''t read portfolios');
 select pg_temp.expect_error($$select public.buy('123', 'yes', 10, 0.5)$$, '%permission denied%');
 select pg_temp.ok(public.username_available('carol') and not public.username_available('Alice'), 'username availability is case-insensitive');
+select pg_temp.ok(not public.username_available('cryptooracle') and not public.username_available('Official_Bot'), 'reserved names never show as available');
 
 -- Recovery codes --------------------------------------------------------------
 reset role;
