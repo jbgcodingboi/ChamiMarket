@@ -360,7 +360,7 @@ export default function ChickenPage() {
               )}
             </span>
             <div className="flex shrink-0 gap-2">
-              <FairnessButton game="chicken" locked={playing} />
+              <FairnessButton game="chicken" />
               <SoundToggle />
             </div>
           </div>

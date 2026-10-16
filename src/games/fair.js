@@ -49,5 +49,5 @@ export async function fairFloats({ serverSeed, clientSeed, nonce }, count) {
   return out
 }
 
-/** A client seed players may choose: 1 to 64 visible characters. */
-export const isClientSeed = (s) => typeof s === 'string' && /^[\x21-\x7e]{1,64}$/.test(s)
+/** Bets per seed pair. After that the pair is retired and its server seed revealed (supabase/schema.sql fair_next). */
+export const SEED_BETS = 100

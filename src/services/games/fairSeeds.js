@@ -1,10 +1,11 @@
 /**
- * The player's provably fair seeds. In backend mode they live on the server
- * (only the server seed's hash is shown until rotation); in local mode they
- * are kept per account in this browser.
+ * The player's provably fair seeds. Players can see them but not change them.
+ * In backend mode they live on the server (only the server seed's hash is
+ * shown until the pair is retired); in local mode they are kept per account in
+ * this browser. Either way a pair is retired after SEED_BETS bets.
  */
 import { create } from 'zustand'
-import { fairFloats, isClientSeed, newClientSeed, newServerSeed, sha256Hex } from '../../games/fair.js'
+import { fairFloats, newClientSeed, newServerSeed, SEED_BETS, sha256Hex } from '../../games/fair.js'
 import { useAccountStore } from '../../store/accountStore.js'
 import { isPlainObject, readJSON, writeJSON } from '../../utils/storage.js'
 import * as backend from '../backend/api.js'
@@ -35,7 +36,7 @@ async function publicInfo(seeds) {
   }
 }
 
-/** True while a local Mines or Chicken Cross round is open (seeds can't change mid-round). */
+/** True while a local Mines or Chicken Cross round is open (its seeds can't be revealed mid-round). */
 const localRoundOpen = () => ['mines', 'chicken'].some((g) => readJSON(roundKey(g), isPlainObject, null)?.phase === 'playing')
 
 export const useFairStore = create((set, get) => ({
@@ -47,34 +48,25 @@ export const useFairStore = create((set, get) => ({
     return info
   },
 
-  /** Local mode: the seeds for the next bet (the stored nonce moves on). */
+  /** Local mode: the seeds for the next bet (the stored nonce moves on), retiring a used-up pair first. */
   take() {
-    const seeds = localSeeds()
+    let seeds = localSeeds()
+    const retire = seeds.nonce >= SEED_BETS && !localRoundOpen()
+    if (retire) {
+      seeds = { serverSeed: newServerSeed(), clientSeed: newClientSeed(), nonce: 0, previous: { serverSeed: seeds.serverSeed, clientSeed: seeds.clientSeed, nonce: seeds.nonce } }
+    }
     writeJSON(seedKey(owner()), { ...seeds, nonce: seeds.nonce + 1 })
-    set((s) => ({ info: s.info ? { ...s.info, nonce: seeds.nonce + 1 } : s.info }))
+    if (retire) publicInfo({ ...seeds, nonce: seeds.nonce + 1 }).then((info) => set({ info }))
+    else set((s) => ({ info: s.info ? { ...s.info, nonce: seeds.nonce + 1 } : s.info }))
     return seeds
   },
 
   /** Backend mode: notes that the server used `nonce` for a bet. */
   used(nonce) {
-    if (Number.isInteger(nonce)) set((s) => ({ info: s.info ? { ...s.info, nonce: nonce + 1 } : s.info }))
-  },
-
-  /** Reveals the current server seed and starts a new pair with the given client seed. */
-  async rotate(clientSeed) {
-    if (!isClientSeed(clientSeed)) throw new Error('Client seeds use 1 to 64 letters, numbers or symbols, with no spaces.')
-    let info
-    if (BACKEND_ENABLED) {
-      info = await backend.fairRotate(clientSeed)
-    } else {
-      if (localRoundOpen()) throw new Error('Finish your Mines or Chicken Cross round before changing seeds.')
-      const seeds = localSeeds()
-      const next = { serverSeed: newServerSeed(), clientSeed, nonce: 0, previous: { serverSeed: seeds.serverSeed, clientSeed: seeds.clientSeed, nonce: seeds.nonce } }
-      writeJSON(seedKey(owner()), next)
-      info = await publicInfo(next)
-    }
-    set({ info })
-    return get().info
+    if (!Number.isInteger(nonce)) return
+    // A lower nonce means the server retired the pair: fetch the new hash and the revealed seed.
+    if (get().info && nonce + 1 < get().info.nonce) get().load().catch(() => {})
+    else set((s) => ({ info: s.info ? { ...s.info, nonce: nonce + 1 } : s.info }))
   },
 }))
 

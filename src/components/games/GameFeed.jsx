@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { GAME_NAME } from '../../games/names.js'
 import { useNow } from '../../hooks/useNow.js'
@@ -26,10 +27,16 @@ function GameLine({ entry, now }) {
   )
 }
 
-/** Game results from every player, newest first. Backend mode only, since local mode has no other players. */
+/** Real game results from every player (never simulated ones), newest first. Backend mode only, since local mode has no other players. */
 export default function GameFeed() {
   const games = useFeedStore((s) => s.games)
   const now = useNow(15000)
+  // New rounds arrive over realtime; this catches up if that connection drops.
+  useEffect(() => {
+    if (!BACKEND_ENABLED) return undefined
+    const t = setInterval(() => document.visibilityState === 'visible' && useFeedStore.getState().refresh(), 20000)
+    return () => clearInterval(t)
+  }, [])
   if (!BACKEND_ENABLED) return null
   return (
     <section className="card p-4" aria-labelledby="game-feed">

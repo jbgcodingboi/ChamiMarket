@@ -1613,7 +1613,9 @@ end $$;
 --
 -- Every result comes from HMAC_SHA256(server seed, "<client seed>:<nonce>:<cursor>"),
 -- 4 bytes per float, exactly like src/games/fair.js. Players see the SHA-256
--- of the server seed before betting and the seed itself once they rotate.
+-- of the server seed before betting. Both seeds are set by the server and
+-- can't be changed by players; every 100 bets the pair is retired, its server
+-- seed revealed, and a fresh pair starts.
 -- ---------------------------------------------------------------------------
 
 create or replace function private.fair_floats(p_server text, p_client text, p_nonce int, p_count int) returns float8[]
@@ -1646,11 +1648,23 @@ begin
   return r;
 end $$;
 
-/** Seeds for the next bet; the nonce then moves on. */
+/**
+ * Seeds for the next bet; the nonce then moves on. After 100 bets the pair is
+ * retired first, but never while a Mines or Chicken Cross round is open: its
+ * outcome comes from the current server seed, so revealing it would give the
+ * round away. Callers hold the player's portfolio lock.
+ */
 create or replace function private.fair_next(p_user uuid, out server_seed text, out client_seed text, out nonce int)
 language plpgsql volatile set search_path = '' as $$
 declare r public.fair_seeds := private.fair_load(p_user);
 begin
+  if r.nonce >= 100 and not private.round_active(p_user) then
+    update public.fair_seeds set prev_server_seed = r.server_seed, prev_client_seed = r.client_seed, prev_nonce = r.nonce,
+      server_seed = encode(extensions.gen_random_bytes(32), 'hex'), client_seed = encode(extensions.gen_random_bytes(8), 'hex'),
+      nonce = 0, updated_at = now()
+    where user_id = p_user
+    returning * into r;
+  end if;
   server_seed := r.server_seed;
   client_seed := r.client_seed;
   nonce := r.nonce;
@@ -1684,22 +1698,8 @@ begin
   return private.fair_json(v_user);
 end $$;
 
-/** Reveals the current server seed and starts a new pair (with the player's new client seed). */
-create or replace function public.fair_rotate(p_client_seed text) returns jsonb
-language plpgsql volatile security definer set search_path = '' as $$
-declare v_user uuid := private.uid(); r public.fair_seeds;
-begin
-  if coalesce(p_client_seed, '') !~ '^[!-~]{1,64}$' then raise exception 'Client seeds use 1 to 64 letters, numbers or symbols, with no spaces.'; end if;
-  -- Lock first: a round starting at the same moment must either be visible
-  -- here or wait, or its server seed could be revealed while it's open.
-  perform 1 from public.portfolios where user_id = v_user for update;
-  if private.round_active(v_user) then raise exception 'Finish your Mines or Chicken Cross round before changing seeds.'; end if;
-  r := private.fair_load(v_user);
-  update public.fair_seeds set prev_server_seed = r.server_seed, prev_client_seed = r.client_seed, prev_nonce = r.nonce,
-    server_seed = encode(extensions.gen_random_bytes(32), 'hex'), client_seed = p_client_seed, nonce = 0, updated_at = now()
-  where user_id = v_user;
-  return private.fair_json(v_user);
-end $$;
+-- Players used to pick their own client seed and change seeds. Seeds are now set by the server only.
+drop function if exists public.fair_rotate(text);
 
 create or replace function private.bet_amount(p_amount numeric) returns numeric
 language plpgsql immutable set search_path = '' as $$
@@ -2087,7 +2087,6 @@ grant execute on function
   public.blackjack_deal(numeric),
   public.blackjack_act(text),
   public.fair_state(),
-  public.fair_rotate(text),
   public.play_dice(numeric, numeric, boolean),
   public.mines_state(),
   public.mines_start(numeric, int),

@@ -29,6 +29,9 @@ grant execute on function pg_temp.clear_limits() to anon, authenticated, service
 create or replace function pg_temp.mults(p_rows int, p_risk text) returns numeric[] language sql security definer as $$ select private.plinko_table(p_rows, p_risk) $$;
 create or replace function pg_temp.bj_total(p_cards jsonb) returns int language sql security definer as $$ select (private.bj_value(p_cards)).total $$;
 grant execute on function pg_temp.mults(int, text), pg_temp.bj_total(jsonb) to authenticated;
+create or replace function pg_temp.set_nonce(p_user uuid, p_nonce int) returns void language sql security definer as $$
+  update public.fair_seeds set nonce = p_nonce where user_id = p_user $$;
+grant execute on function pg_temp.set_nonce(uuid, int) to authenticated;
 set client_min_messages = notice;
 
 -- Sign-up -------------------------------------------------------------------
@@ -306,7 +309,7 @@ begin
   perform pg_temp.ok(r -> 'round' ->> 'phase' = 'playing' and not (r -> 'round') ? 'positions' and r -> 'round' -> 'result' = 'null'
     and (r -> 'round' ->> 'nonce')::int = 2, 'mine positions stay on the server during a round');
   perform pg_temp.expect_error($q$select public.mines_start(10, 3)$q$, '%current round%');
-  perform pg_temp.expect_error($q$select public.fair_rotate('new-seed')$q$, '%Finish your Mines%');
+  perform pg_temp.expect_error($q$select public.fair_rotate('new-seed')$q$, '%does not exist%');
   perform pg_temp.expect_error($q$select public.mines_cashout()$q$, '%at least one tile%');
   r := public.mines_reveal(0);
   perform pg_temp.ok((r -> 'round' ->> 'multiplier')::numeric = 1.12 and (r -> 'round' ->> 'nextMultiplier')::numeric = 1.28, 'one gem with 3 mines is 1.12x, next 1.28x');
@@ -364,11 +367,22 @@ begin
     'mines auto rejects bad tiles before any round starts');
   perform pg_temp.expect_error($q$select public.chicken_auto(5, 'hard', 23)$q$, '%from 1 to 22%');
 
-  f := public.fair_rotate('lucky-7');
-  perform pg_temp.ok(f -> 'previous' ->> 'serverSeed' = repeat('b', 64) and (f -> 'previous' ->> 'nonce')::int = 64
-    and f ->> 'clientSeed' = 'lucky-7' and (f ->> 'nonce')::int = 0 and f ->> 'serverSeedHash' <> f -> 'previous' ->> 'serverSeedHash',
-    'rotating reveals the old server seed (64 bets) and starts a fresh pair');
-  perform pg_temp.expect_error($q$select public.fair_rotate('has space')$q$, '%no spaces%');
+  -- Seeds retire on their own after 100 bets, but never while a round is open.
+  perform pg_temp.clear_limits();
+  r := public.mines_start(1, 3);
+  perform pg_temp.set_nonce(auth.uid(), 100);
+  r := public.play_dice(1, 50, true);
+  f := public.fair_state();
+  perform pg_temp.ok((r ->> 'nonce')::int = 100 and f -> 'previous' = 'null' and (f ->> 'nonce')::int = 101,
+    'seeds stay put while a Mines round is open');
+  r := public.mines_reveal(0);
+  if r -> 'round' ->> 'phase' = 'playing' then r := public.mines_cashout(); end if;
+  r := public.play_dice(1, 50, true);
+  f := public.fair_state();
+  perform pg_temp.ok((r ->> 'nonce')::int = 0 and f -> 'previous' ->> 'serverSeed' = repeat('b', 64) and (f -> 'previous' ->> 'nonce')::int = 101
+    and f -> 'previous' ->> 'clientSeed' = 'chami' and (f ->> 'nonce')::int = 1 and f ->> 'clientSeed' ~ '^[0-9a-f]{16}$'
+    and f ->> 'serverSeedHash' <> f -> 'previous' ->> 'serverSeedHash',
+    'after 100 bets the next one retires the pair, reveals its server seed and starts fresh seeds');
 end $$;
 
 -- Rate limits ----------------------------------------------------------------
@@ -381,7 +395,7 @@ do $$ declare i int; begin
 end $$;
 
 -- Portfolio JSON and the leaderboard -----------------------------------------
-select pg_temp.ok((public.get_portfolio() -> 'games' ->> 'runRounds')::int = 300 + 25 + 5 + 150 + 2 + 2 + 60 + 40, 'every game round is recorded');
+select pg_temp.ok((public.get_portfolio() -> 'games' ->> 'runRounds')::int = 300 + 25 + 5 + 150 + 2 + 2 + 60 + 3 + 40, 'every game round is recorded');
 select pg_temp.ok((public.get_portfolio() -> 'games' -> 'stats' -> 'blackjack' ->> 'rounds')::int = 155, 'per-game stats');
 reset role;
 select pg_temp.ok(not exists (
