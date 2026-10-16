@@ -4,7 +4,7 @@
  * labelled simulated entries in the activity feed.
  */
 import { roundShares } from '../utils/math.js'
-import { createRng, pick, randomId } from '../utils/rng.js'
+import { createRng, hashString, pick, randomId } from '../utils/rng.js'
 
 export const PRO_TRADERS = [
   { name: 'CryptoOracle', equity: 412800, trades: 1843 },
@@ -25,6 +25,21 @@ export const PRO_TRADERS = [
 ]
 
 export const PRO_STARTING_EQUITY = 100000
+
+const SIM_GAMES = ['roulette', 'blackjack', 'plinko']
+
+/**
+ * Seeded game stats for a simulated pro, so the Games board has company.
+ * Results hover around the games' small house edge, with some winners.
+ */
+export function simGameStats(name) {
+  const rng = createRng(hashString(`games:${name}`))
+  const rounds = 40 + Math.floor(rng() * 560)
+  const wagered = Math.round(rounds * (20 + rng() * 380))
+  const net = Math.round(wagered * (-0.025 + (rng() - 0.5) * 0.14))
+  const best = Math.round((wagered / rounds) * (3 + rng() * 40))
+  return { rounds, wagered, net, best, favorite: pick(rng, SIM_GAMES) }
+}
 
 const CASUAL_HANDLES = [
   'WhaleTrader99', 'quietkelly', 'dataDan', 'mapleleaf_mo', 'contrarian_cat', 'nightowl88',
