@@ -78,6 +78,14 @@ export const useFeedStore = create((set) => ({
     set({ real: next })
   },
 
+  /** Local mode: drops a deleted account's trades from the shared feed. */
+  removeUser(username) {
+    if (BACKEND_ENABLED) return
+    const next = readFeed().filter((e) => e.user !== username)
+    writeJSON(KEY, next)
+    set({ real: next })
+  },
+
   addSim(entry) {
     set((s) => ({ sim: [entry, ...s.sim].slice(0, MAX_SIM) }))
   },

@@ -11,6 +11,7 @@ import { PageSkeleton } from './components/ui/Skeleton.jsx'
 import Toaster from './components/ui/Toaster.jsx'
 import ScrollToTop from './components/layout/ScrollToTop.jsx'
 import CornerNotice from './components/legal/CornerNotice.jsx'
+import DeleteAccountModal from './components/DeleteAccountModal.jsx'
 import TermsGate from './components/legal/TermsGate.jsx'
 
 const HomePage = lazy(() => import('./pages/HomePage.jsx'))
@@ -73,6 +74,7 @@ export default function App() {
       </div>
       <AuthModal />
       <ResetBalanceModal />
+      <DeleteAccountModal />
       <RecoveryCodeModal />
       <Toaster />
       <CornerNotice />

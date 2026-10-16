@@ -1,5 +1,5 @@
 import { useRef } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { useLocation } from 'react-router-dom'
 import { useLegalStore } from '../../store/legalStore.js'
 import Modal from '../ui/Modal.jsx'
 
@@ -12,15 +12,13 @@ const POINTS = [
     title: 'Play money only',
     body: 'Nothing costs money, nothing can be won, and balances have no cash value. It is not gambling, and nothing here is financial or betting advice.',
   },
-  {
-    title: 'Public and as is',
-    body: 'Usernames, trades and game results show on public leaderboards and feeds. The site is provided as is, may be wrong or offline, and can change or reset at any time. You must be 13 or older, and players under 18 need a parent or guardian’s permission.',
-  },
 ]
 
 /**
- * First-visit agreement: a short summary of the Terms with one button. It
- * stays out of the way on the Terms page itself so the full text can be read.
+ * First-visit agreement: a short summary with a link to the full Terms (in a
+ * new tab) and one button. This is the only place anyone agrees. Once agreed,
+ * this browser never sees it again unless TERMS_VERSION changes. It stays off
+ * the Terms page itself so the full text can be read.
  */
 export default function TermsGate() {
   const accepted = useLegalStore((s) => s.accepted)
@@ -46,12 +44,18 @@ export default function TermsGate() {
           </li>
         ))}
       </ul>
-      <p className="mt-4 text-xs leading-relaxed text-subtle">
-        By selecting &quot;I understand and agree&quot; you confirm that you have read and understood these points and that you accept the full{' '}
-        <Link to="/terms" className="text-primary-300 underline">
-          Terms of Use
-        </Link>
-        .
+      <a
+        href="#/terms"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="mt-4 flex items-center justify-between rounded-lg border border-line px-3 py-2.5 text-sm font-medium text-primary-300 hover:bg-surface-2"
+      >
+        Read the full Terms of Use and Disclaimers
+        <span aria-hidden="true">↗</span>
+      </a>
+      <p className="mt-3 text-xs leading-relaxed text-subtle">
+        By selecting &quot;I understand and agree&quot; you confirm that you have read and understood these points and accept the Terms of Use and
+        Disclaimers. You only need to do this once.
       </p>
       <button ref={agreeRef} type="button" className="btn btn-primary mt-4 w-full py-2.5" onClick={accept}>
         I understand and agree
