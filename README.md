@@ -248,6 +248,11 @@ browser. Connecting a free [Supabase](https://supabase.com) project turns Chami 
 - **Real accounts** with a username or email and a password. No Google or other sign-in, no confirmation email
   and no links. At sign-up each player gets a one-time **recovery code** (like `K7QM-2XRP-9WDT`); it is the only
   way to reset a forgotten password, and using it issues a new one. A new code can be made from the account menu.
+- **Delete account** in the account menu, after typing the username and password. The server
+  (`delete_account`) removes the login and everything tied to it, including leaderboard rows and feed entries.
+- **Terms**: a first-visit pop-up with one "I understand and agree" button links to the full Terms of Use
+  (`#/terms`). Agreement is stored per browser and versioned by `TERMS_VERSION` in `src/config.js`, and sign-ups
+  record the accepted version in the account's metadata.
 - **A true leaderboard**: every player, valued on the server, on the Overall, Markets and Games boards.
 - **A live feed** of everyone's trades and game results over Supabase Realtime.
 - **Cheat-proof money.** The browser can only read; it can't write any table. Every buy, sell, reset, payout and

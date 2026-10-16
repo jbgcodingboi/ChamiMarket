@@ -1,7 +1,6 @@
 import { Link } from 'react-router-dom'
 import { TERMS_EFFECTIVE } from '../config.js'
 import { useDocumentTitle } from '../hooks/useDocumentTitle.js'
-import { useLegalStore } from '../store/legalStore.js'
 
 const REPO = 'https://github.com/jbgcodingboi/ChamiMarket'
 
@@ -144,8 +143,6 @@ const jump = (id) => document.getElementById(id)?.scrollIntoView({ behavior: 'sm
 
 export default function TermsPage() {
   useDocumentTitle('Terms of Use')
-  const accepted = useLegalStore((s) => s.accepted)
-  const accept = useLegalStore((s) => s.accept)
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-6">
@@ -158,11 +155,6 @@ export default function TermsPage() {
           Chami Market is an unofficial fan site. It is not affiliated with, endorsed by, or associated with Chaminade High School or any other organization
           named on it. Everything uses play money with no cash value. Nothing here is advice, and the site is provided as is.
         </p>
-        {!accepted && (
-          <button type="button" className="btn btn-primary mt-3" onClick={accept}>
-            I understand and agree
-          </button>
-        )}
       </div>
 
       <nav aria-label="Sections" className="mt-5 flex flex-wrap gap-1.5 text-xs">

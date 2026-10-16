@@ -5,7 +5,7 @@ import { useAccountStore } from '../../store/accountStore.js'
 import { toast } from '../../store/toastStore.js'
 import { useUiStore } from '../../store/uiStore.js'
 import { formatCurrency } from '../../utils/format.js'
-import { BriefcaseIcon, ChevronDownIcon, InfoIcon, LogOutIcon, RefreshIcon, TrophyIcon } from '../ui/Icons.jsx'
+import { BriefcaseIcon, ChevronDownIcon, InfoIcon, LogOutIcon, RefreshIcon, TrashIcon, TrophyIcon } from '../ui/Icons.jsx'
 import { BACKEND_ENABLED } from '../../services/backend/config.js'
 import { createRecoveryCode } from '../../services/backend/api.js'
 
@@ -13,6 +13,7 @@ export default function UserMenu() {
   const user = useAccountStore((s) => s.user)
   const logOut = useAccountStore((s) => s.logOut)
   const setResetOpen = useUiStore((s) => s.setResetOpen)
+  const setDeleteOpen = useUiStore((s) => s.setDeleteOpen)
   const metrics = usePortfolioMetrics()
   const [open, setOpen] = useState(false)
   const rootRef = useRef(null)
@@ -40,6 +41,7 @@ export default function UserMenu() {
   if (!user || !metrics) return null
 
   const item = 'flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm hover:bg-surface-3'
+  const icon = 'size-4 shrink-0 text-muted'
 
   return (
     <div className="relative" ref={rootRef}>
@@ -82,10 +84,10 @@ export default function UserMenu() {
           </div>
           <div className="pt-1.5">
             <Link role="menuitem" to="/portfolio" className={item} onClick={() => setOpen(false)}>
-              <BriefcaseIcon className="text-muted" /> Portfolio
+              <BriefcaseIcon className={icon} /> Portfolio
             </Link>
             <Link role="menuitem" to="/leaderboard" className={item} onClick={() => setOpen(false)}>
-              <TrophyIcon className="text-muted" /> Leaderboard
+              <TrophyIcon className={icon} /> Leaderboard
             </Link>
             <button
               role="menuitem"
@@ -96,7 +98,7 @@ export default function UserMenu() {
                 setResetOpen(true)
               }}
             >
-              <RefreshIcon className="text-muted" /> Reset balance
+              <RefreshIcon className={icon} /> Reset balance
             </button>
             {BACKEND_ENABLED && (
               <button
@@ -112,7 +114,7 @@ export default function UserMenu() {
                   }
                 }}
               >
-                <InfoIcon className="text-muted" /> New recovery code
+                <InfoIcon className={icon} /> New recovery code
               </button>
             )}
             <button
@@ -125,8 +127,21 @@ export default function UserMenu() {
                 toast({ title: 'Logged out', description: BACKEND_ENABLED ? 'Your paper portfolio is saved to your account.' : 'Your paper portfolio is saved on this device.' })
               }}
             >
-              <LogOutIcon /> Log out
+              <LogOutIcon className="size-4 shrink-0" /> Log out
             </button>
+            <div className="mt-1.5 border-t border-line pt-1.5">
+              <button
+                role="menuitem"
+                type="button"
+                className={`${item} text-xs text-subtle hover:text-no`}
+                onClick={() => {
+                  setOpen(false)
+                  setDeleteOpen(true)
+                }}
+              >
+                <TrashIcon className="size-4 shrink-0" /> Delete account
+              </button>
+            </div>
           </div>
         </div>
       )}
