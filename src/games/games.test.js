@@ -225,6 +225,18 @@ describe('games and the portfolio', () => {
 })
 
 describe('leaderboard figures', () => {
+  it('spreads leaderboard filler evenly and shrinks it as real players join', async () => {
+    const { spreadPick } = await import('../services/mockTraders.js')
+    const rows = Array.from({ length: 15 }, (_, i) => i)
+    expect(spreadPick(rows, 15)).toEqual(rows)
+    expect(spreadPick(rows, 20)).toEqual(rows)
+    expect(spreadPick(rows, 3)).toEqual([0, 7, 14])
+    expect(spreadPick(rows, 1)).toEqual([7])
+    expect(spreadPick(rows, 0)).toEqual([])
+    expect(spreadPick(rows, -4)).toEqual([])
+    expect(new Set(spreadPick(rows, 14)).size).toBe(14)
+  })
+
   it('gives simulated pros stable game stats near the house edge', async () => {
     const { PRO_TRADERS, simGameStats } = await import('../services/mockTraders.js')
     for (const t of PRO_TRADERS) {

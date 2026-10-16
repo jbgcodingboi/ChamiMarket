@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { AutoSettings } from '../../components/games/AutoBet.jsx'
 import BetAmount from '../../components/games/BetAmount.jsx'
-import FairnessPanel from '../../components/games/FairnessPanel.jsx'
+import FairnessButton from '../../components/games/FairnessPanel.jsx'
 import GameShell from '../../components/games/GameShell.jsx'
 import ModeTabs from '../../components/games/ModeTabs.jsx'
 import SoundToggle from '../../components/games/SoundToggle.jsx'
@@ -185,7 +185,10 @@ export default function DicePage() {
                 </span>
               ))}
             </div>
-            <SoundToggle />
+            <div className="flex shrink-0 gap-2">
+              <FairnessButton game="dice" />
+              <SoundToggle />
+            </div>
           </div>
           <DiceTrack target={target} over={over} onTarget={setTarget} roll={last?.roll ?? null} win={last?.win} disabled={locked} />
           <div className="grid gap-3 sm:grid-cols-3">
@@ -238,7 +241,6 @@ export default function DicePage() {
           </div>
         </section>
       </div>
-      <FairnessPanel game="dice" />
     </GameShell>
   )
 }

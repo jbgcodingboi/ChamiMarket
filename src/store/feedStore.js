@@ -6,6 +6,7 @@ import { isPlainObject, readJSON, writeJSON } from '../utils/storage.js'
 
 const KEY = 'feed'
 const MAX_SIM = 60
+const MAX_GAMES = 40
 
 const isEntry = (e) =>
   isPlainObject(e) &&
@@ -25,11 +26,13 @@ const readFeed = () => {
 /**
  * Activity feed. Real paper trades from every local account live in a shared,
  * capped localStorage list; simulated trades are generated in memory and are
- * always flagged with sim: true.
+ * always flagged with sim: true. In backend mode, game results from every
+ * player are kept apart in `games` so they never crowd out market trades.
  */
 export const useFeedStore = create((set) => ({
   real: [],
   sim: [],
+  games: [],
 
   load() {
     if (BACKEND_ENABLED) return
@@ -38,10 +41,19 @@ export const useFeedStore = create((set) => ({
 
   /** Backend mode: loads recent activity from every player and follows new rows live. */
   async connect() {
-    const entries = await backend.recentActivity(MAX_SIM).catch(() => [])
-    set({ real: entries })
+    const [real, games] = await Promise.all([
+      backend.recentActivity(MAX_SIM, 'markets').catch(() => []),
+      backend.recentActivity(MAX_GAMES, 'games').catch(() => []),
+    ])
+    set({ real, games })
     return backend
-      .subscribeActivity((entry) => set((s) => ({ real: [entry, ...s.real.filter((e) => e.id !== entry.id)].slice(0, MAX_FEED_ENTRIES) })))
+      .subscribeActivity((entry) =>
+        set((s) =>
+          entry.action === 'game'
+            ? { games: [entry, ...s.games.filter((e) => e.id !== entry.id)].slice(0, MAX_GAMES) }
+            : { real: [entry, ...s.real.filter((e) => e.id !== entry.id)].slice(0, MAX_FEED_ENTRIES) },
+        ),
+      )
       .catch(() => () => {})
   },
 

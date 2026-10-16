@@ -29,6 +29,9 @@ export const TAGGED_CATEGORIES = CATEGORIES.filter((c) => c.tagSlug)
 
 export const MIN_ORDER = 0.01
 export const MAX_FEED_ENTRIES = 300
+
+/** Backend mode: simulated players fill the leaderboard up to this many rows, one leaving for each real player. */
+export const LEADERBOARD_FILL = 15
 export const MAX_HISTORY_ENTRIES = 1000
 export const MAX_SNAPSHOTS = 400
 export const MAX_KNOWN_MARKETS = 500

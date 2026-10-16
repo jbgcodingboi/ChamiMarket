@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import * as backend from '../services/backend/api.js'
 import { BACKEND_ENABLED } from '../services/backend/config.js'
+import { LEADERBOARD_FILL } from '../config.js'
 import { useFeedStore } from '../store/feedStore.js'
-import { PRO_STARTING_EQUITY, PRO_TRADERS, simGameStats } from '../services/mockTraders.js'
+import { PRO_STARTING_EQUITY, PRO_TRADERS, simGameStats, spreadPick } from '../services/mockTraders.js'
 import { readAccounts, readPortfolio, useAccountStore } from '../store/accountStore.js'
 import { getMarket, useMarketStore } from '../store/marketStore.js'
 import { useMockTraderStore } from '../store/mockTraderStore.js'
@@ -22,6 +23,38 @@ function proTraderEquity(trader, holdings, drift) {
   return roundMoney((cents / 100) * drift)
 }
 
+/** The simulated pro traders as leaderboard rows, highest net worth first. */
+function useSimRows() {
+  const tick = useMarketStore((s) => s.tick)
+  const { holdings, drift, simTrades } = useMockTraderStore()
+  return useMemo(
+    () =>
+      PRO_TRADERS.map((trader) => {
+        const netWorth = proTraderEquity(trader, holdings[trader.name] ?? [], drift[trader.name] ?? 1)
+        const pnl = roundMoney(netWorth - PRO_STARTING_EQUITY)
+        const games = simGameStats(trader.name)
+        return {
+          id: `pro:${trader.name}`,
+          name: trader.name,
+          sim: true,
+          netWorth,
+          pnl,
+          pnlPct: (pnl / PRO_STARTING_EQUITY) * 100,
+          marketPnl: roundMoney(pnl - games.net),
+          realized: null,
+          unrealized: null,
+          trades: trader.trades + (simTrades[trader.name] ?? 0),
+          winRate: null,
+          openPositions: (holdings[trader.name] ?? []).length,
+          games,
+        }
+      }).sort((a, b) => b.netWorth - a.netWorth),
+    // tick invalidates prices read through getMarket.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tick, holdings, drift, simTrades],
+  )
+}
+
 /**
  * One row per local account plus the simulated pro traders, with overall,
  * market and game figures for the current run. Overall PnL is net worth
@@ -33,7 +66,7 @@ function useLocalLeaderboard() {
   const resolutions = useResolutionStore((s) => s.resolutions)
   const portfolio = useAccountStore((s) => s.portfolio)
   const accountsVersion = useAccountStore((s) => s.accounts.length)
-  const { holdings, drift, simTrades } = useMockTraderStore()
+  const sims = useSimRows()
 
   return useMemo(() => {
     const rows = []
@@ -58,38 +91,23 @@ function useLocalLeaderboard() {
         games: { ...games, favorite: favoriteGame(p) },
       })
     }
-    for (const trader of PRO_TRADERS) {
-      const netWorth = proTraderEquity(trader, holdings[trader.name] ?? [], drift[trader.name] ?? 1)
-      const pnl = roundMoney(netWorth - PRO_STARTING_EQUITY)
-      const games = simGameStats(trader.name)
-      rows.push({
-        id: `pro:${trader.name}`,
-        name: trader.name,
-        sim: true,
-        netWorth,
-        pnl,
-        pnlPct: (pnl / PRO_STARTING_EQUITY) * 100,
-        marketPnl: roundMoney(pnl - games.net),
-        realized: null,
-        unrealized: null,
-        trades: trader.trades + (simTrades[trader.name] ?? 0),
-        winRate: null,
-        openPositions: (holdings[trader.name] ?? []).length,
-        games,
-      })
-    }
-    return rows
+    return [...rows, ...sims]
     // tick, resolutions, portfolio and accountsVersion invalidate storage-backed values.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tick, resolutions, portfolio, accountsVersion, holdings, drift, simTrades])
+  }, [tick, resolutions, portfolio, accountsVersion, sims])
 }
 
 const num = (v) => (v === null || v === undefined ? null : Number(v))
 
-/** Backend mode: every player's standings from the server, refreshed every 30 seconds and on new activity. */
+/**
+ * Backend mode: every player's standings from the server, refreshed every 30
+ * seconds and on new activity, topped up with simulated players until there
+ * are LEADERBOARD_FILL real ones.
+ */
 function useServerLeaderboard() {
-  const [rows, setRows] = useState([])
-  const latest = useFeedStore((s) => s.real[0]?.id)
+  const [rows, setRows] = useState(null)
+  const sims = useSimRows()
+  const latest = useFeedStore((s) => `${s.real[0]?.id}:${s.games[0]?.id}`)
   const portfolio = useAccountStore((s) => s.portfolio)
   const [tick, setTick] = useState(0)
   useEffect(() => {
@@ -121,7 +139,8 @@ function useServerLeaderboard() {
       live = false
     }
   }, [latest, portfolio, tick])
-  return rows
+  // Filler waits for the first server answer, so real players don't pop in over it.
+  return useMemo(() => (rows ? [...rows, ...spreadPick(sims, LEADERBOARD_FILL - rows.length)] : []), [rows, sims])
 }
 
 /** Leaderboard rows: real players from the server in backend mode, else local accounts plus simulated pros. */

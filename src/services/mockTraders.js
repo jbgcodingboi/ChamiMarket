@@ -41,6 +41,17 @@ export function simGameStats(name) {
   return { rounds, wagered, net, best, favorite: pick(rng, SIM_GAMES) }
 }
 
+/**
+ * Picks `n` rows spread evenly from top to bottom, so the filler leaves real
+ * players someone to chase and someone to pass whatever their score.
+ */
+export function spreadPick(rows, n) {
+  if (n <= 0) return []
+  if (n >= rows.length) return rows
+  if (n === 1) return [rows[Math.floor(rows.length / 2)]]
+  return Array.from({ length: n }, (_, i) => rows[Math.round((i * (rows.length - 1)) / (n - 1))])
+}
+
 const CASUAL_HANDLES = [
   'WhaleTrader99', 'quietkelly', 'dataDan', 'mapleleaf_mo', 'contrarian_cat', 'nightowl88',
   'sixfigurespreads', 'lucky_lena', 'statsgeek', 'benchwarmer', 'coinflipcarl', 'forecastfiona',

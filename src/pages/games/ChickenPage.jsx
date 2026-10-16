@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AutoSettings } from '../../components/games/AutoBet.jsx'
 import BetAmount from '../../components/games/BetAmount.jsx'
-import FairnessPanel from '../../components/games/FairnessPanel.jsx'
+import FairnessButton from '../../components/games/FairnessPanel.jsx'
 import GameShell from '../../components/games/GameShell.jsx'
 import ModeTabs from '../../components/games/ModeTabs.jsx'
 import SoundToggle from '../../components/games/SoundToggle.jsx'
@@ -359,7 +359,10 @@ export default function ChickenPage() {
                 </span>
               )}
             </span>
-            <SoundToggle />
+            <div className="flex shrink-0 gap-2">
+              <FairnessButton game="chicken" locked={playing} />
+              <SoundToggle />
+            </div>
           </div>
           <div className="relative overflow-hidden bg-[#141417] [perspective:1100px]" style={{ height: VIEW_H }}>
             <div className="origin-bottom [transform:rotateX(14deg)]" style={{ height: VIEW_H }}>
@@ -396,7 +399,6 @@ export default function ChickenPage() {
           </div>
         </section>
       </div>
-      <FairnessPanel game="chicken" locked={playing} />
     </GameShell>
   )
 }

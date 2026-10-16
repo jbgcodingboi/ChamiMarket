@@ -124,6 +124,12 @@ async function backendTick() {
   }
 }
 
+/** Backend mode: true when real players made a few trades in the last five minutes, so filler isn't needed. */
+function realTradesBusy() {
+  const since = Date.now() - 5 * 60000
+  return useFeedStore.getState().real.filter((e) => e.ts > since).length >= 3
+}
+
 function addSimTrade(ts) {
   const entry = generateSimTrade(listing(), ts)
   if (!entry) return
@@ -200,15 +206,16 @@ export default function AppEffects() {
 
   useEffect(() => {
     if (!tick) return
+    useMockTraderStore.getState().sync(listing())
+    if (!useFeedStore.getState().sim.length) {
+      // Backend mode only needs a light buffer under the real trades.
+      const now = Date.now()
+      const [count, gap] = BACKEND_ENABLED ? [4, 4 * 60000] : [8, 47000]
+      for (let i = count; i > 0; i--) addSimTrade(now - i * gap - Math.random() * 30000)
+    }
     if (BACKEND_ENABLED) {
       backendTick()
       return
-    }
-    const markets = listing()
-    useMockTraderStore.getState().sync(markets)
-    if (!useFeedStore.getState().sim.length) {
-      const now = Date.now()
-      for (let i = 8; i > 0; i--) addSimTrade(now - i * 47000 - Math.random() * 30000)
     }
     const account = useAccountStore.getState()
     if (!account.portfolio) return
@@ -224,15 +231,14 @@ export default function AppEffects() {
   }, [tick])
 
   useEffect(() => {
-    if (BACKEND_ENABLED) return undefined
     let timer
     const loop = () => {
       timer = setTimeout(
         () => {
-          if (document.visibilityState === 'visible') addSimTrade(Date.now())
+          if (document.visibilityState === 'visible' && !(BACKEND_ENABLED && realTradesBusy())) addSimTrade(Date.now())
           loop()
         },
-        3500 + Math.random() * 5500,
+        BACKEND_ENABLED ? 40000 + Math.random() * 50000 : 3500 + Math.random() * 5500,
       )
     }
     loop()
