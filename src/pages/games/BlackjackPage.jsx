@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Chip, ChipSelector } from '../../components/games/Chip.jsx'
 import GameShell from '../../components/games/GameShell.jsx'
 import PlayingCard from '../../components/games/PlayingCard.jsx'
 import { useDocumentTitle } from '../../hooks/useDocumentTitle.js'
 import * as bj from '../../games/blackjack.js'
 import { useAccountStore } from '../../store/accountStore.js'
+import { blackjackAct, blackjackDeal, blackjackState } from '../../services/backend/api.js'
+import { BACKEND_ENABLED } from '../../services/backend/config.js'
 import { debit, settle, useChips } from '../../store/gameStore.js'
 import { toast } from '../../store/toastStore.js'
 import { roundMoney } from '../../utils/math.js'
@@ -40,12 +42,12 @@ function totalLabel(cards) {
   return soft && total < 21 ? `${total - 10} / ${total}` : String(total)
 }
 
-function Hand({ cards, hiddenFrom = Infinity, label, active, bet, outcome, small }) {
+function Hand({ cards, hiddenFrom = Infinity, label, active, bet, outcome, small, keyByIndex = false }) {
   return (
     <div className={`flex flex-col items-center gap-2 rounded-2xl p-2 transition ${active ? 'bg-white/10 ring-2 ring-warn/80' : ''}`}>
       <div className="flex min-h-28 items-end">
         {cards.map((card, i) => (
-          <div key={card.id + i} className={i ? (small ? '-ml-9' : '-ml-12') : ''}>
+          <div key={keyByIndex ? i : card.id + i} className={i ? (small ? '-ml-9' : '-ml-12') : ''}>
             <PlayingCard card={card} hidden={i >= hiddenFrom} index={i} small={small} />
           </div>
         ))}
@@ -80,10 +82,22 @@ function Rules() {
   )
 }
 
+// Backend mode: the server deals and keeps the shoe; this is the empty table shown while it loads.
+const remoteTable = () => ({
+  game: { phase: 'betting', dealer: [], hands: [], active: 0, insurance: 0, result: null, shoeLeft: 1 },
+  round: 0,
+  settled: true,
+  lastBet: 25,
+})
+
 function Table({ owner }) {
+  const remote = BACKEND_ENABLED
   const balance = useChips()
   const run = useAccountStore((s) => s.portfolio?.run)
-  const [table, setTable] = useState(() => readJSON(tableKey(owner), isTable, null) ?? freshTable())
+  const [table, setTable] = useState(() => (remote ? remoteTable() : (readJSON(tableKey(owner), isTable, null) ?? freshTable())))
+  const [working, setWorking] = useState(false)
+  // The server's portfolio after a finished hand, applied once the dealer's cards are turned over.
+  const heldPortfolio = useRef(null)
   const [bet, setBet] = useState(() => Math.min(table.lastBet ?? 25, Math.max(balance, 0)))
   const [chip, setChip] = useState(25)
   const [reveal, setReveal] = useState(() => (table.settled ? Infinity : 1))
@@ -93,8 +107,20 @@ function Table({ owner }) {
   const settled = voided || table.settled
 
   useEffect(() => {
-    writeJSON(tableKey(owner), table)
-  }, [owner, table])
+    if (!remote) writeJSON(tableKey(owner), table)
+  }, [owner, table, remote])
+
+  // Backend mode: pick up the hand where the server left it (also after a balance reset).
+  useEffect(() => {
+    if (!remote) return undefined
+    let live = true
+    blackjackState()
+      .then((view) => live && setTable((t) => ({ ...t, game: view, settled: true, run })))
+      .catch((err) => toast({ tone: 'error', title: 'Could not load the table', description: err.message }))
+    return () => {
+      live = false
+    }
+  }, [remote, run])
 
   // When a round ends, turn the dealer's cards over one at a time, then pay out.
   useEffect(() => {
@@ -104,6 +130,12 @@ function Table({ owner }) {
     let shown = 1
     let timer
     const payOut = () => {
+      if (remote) {
+        useAccountStore.getState().adoptRemote(heldPortfolio.current)
+        heldPortfolio.current = null
+        setTable((t) => ({ ...t, settled: true }))
+        return
+      }
       const { result, hands } = g
       const outcomes = hands.map((h) => OUTCOME[h.outcome][0].replace('!', '')).join(', ')
       settle({ run: table.run, game: 'blackjack', staked: result.staked, returned: result.returned, detail: `${outcomes} vs dealer ${bj.isBlackjack(g.dealer) ? 'blackjack' : bj.handValue(g.dealer).total}` })
@@ -116,7 +148,7 @@ function Table({ owner }) {
     }
     timer = setTimeout(tick, reduce ? 0 : 350)
     return () => clearTimeout(timer)
-  }, [g, settled, table.run])
+  }, [g, settled, table.run, remote])
 
   const betting = g.phase === 'betting' || (g.phase === 'done' && settled)
   const busy = g.phase === 'done' && !settled
@@ -128,8 +160,29 @@ function Table({ owner }) {
     return false
   }
 
+  /** Backend mode: sends a move to the server and shows the table it returns. */
+  const play = async (call, extra = {}) => {
+    if (working) return
+    setWorking(true)
+    try {
+      const res = await call()
+      if (res.table.phase === 'done') heldPortfolio.current = res.portfolio
+      else useAccountStore.getState().adoptRemote(res.portfolio)
+      setTable((t) => ({ ...t, ...extra, game: res.table, settled: false }))
+    } catch (err) {
+      toast({ tone: 'error', title: 'Move not accepted', description: err.message })
+    } finally {
+      setWorking(false)
+    }
+  }
+
   const startRound = () => {
     if (!(bet >= 1)) return toast({ tone: 'error', title: 'Place a bet first' })
+    if (remote) {
+      if (bet > balance) return toast({ tone: 'error', title: 'Not enough chips', description: `This bet needs ${formatCurrency(bet)}.` })
+      setReveal(1)
+      return play(() => blackjackDeal(bet), { round: table.round + 1, lastBet: bet, run })
+    }
     if (!pay(bet, 'This bet')) return
     setReveal(1)
     setTable((t) => ({ game: bj.deal(t.game, bet), round: t.round + 1, settled: false, lastBet: bet, run }))
@@ -142,18 +195,24 @@ function Table({ owner }) {
   }
 
   const insure = (take) => {
+    if (remote) return play(() => blackjackAct(take ? 'insurance' : 'no_insurance'))
     if (take && !pay(g.hands[0].bet / 2, 'Insurance')) return
     update(bj.insurance(g, take))
   }
-  const doubleDown = () => pay(bj.cost(g, 'double'), 'Doubling') && update(bj.double(g))
-  const splitHand = () => pay(bj.cost(g, 'split'), 'Splitting') && update(bj.split(g))
+  const doubleDown = () => (remote ? play(() => blackjackAct('double')) : pay(bj.cost(g, 'double'), 'Doubling') && update(bj.double(g)))
+  const splitHand = () => (remote ? play(() => blackjackAct('split')) : pay(bj.cost(g, 'split'), 'Splitting') && update(bj.split(g)))
+  const hit = () => (remote ? play(() => blackjackAct('hit')) : update(bj.hit(g)))
+  const stand = () => (remote ? play(() => blackjackAct('stand')) : update(bj.stand(g)))
+  const activeBet = g.hands[g.active]?.bet ?? 0
+  const canDouble = (remote ? Boolean(g.canDouble) : bj.canDouble(g)) && balance >= activeBet && !working
+  const canSplit = (remote ? Boolean(g.canSplit) : bj.canSplit(g)) && balance >= activeBet && !working
 
   const dealerHiddenFrom = g.phase === 'player' || g.phase === 'insurance' ? 1 : settled ? Infinity : reveal
   const dealerShown = g.dealer.slice(0, g.phase === 'done' && !settled ? Math.max(reveal, 2) : g.dealer.length)
   const visibleDealer = dealerShown.slice(0, Math.min(dealerShown.length, dealerHiddenFrom))
   const net = g.result ? roundMoney(g.result.returned - g.result.staked) : 0
   const playerCanAct = g.phase === 'player'
-  const shoeLeft = g.shoe.length / (bj.DECKS * 52)
+  const shoeLeft = remote ? (g.shoeLeft ?? 1) : g.shoe.length / (bj.DECKS * 52)
 
   return (
     <>
@@ -168,7 +227,7 @@ function Table({ owner }) {
           </span>
         </div>
         <div className="flex min-h-40 justify-center">
-          {g.dealer.length > 0 && <Hand cards={dealerShown} hiddenFrom={dealerHiddenFrom} label={totalLabel(visibleDealer)} />}
+          {g.dealer.length > 0 && <Hand cards={dealerShown} hiddenFrom={dealerHiddenFrom} label={totalLabel(visibleDealer)} keyByIndex />}
         </div>
 
         <div className="pointer-events-none my-3 text-center text-[11px] font-semibold tracking-[0.2em] text-warn/80 uppercase">
@@ -238,7 +297,7 @@ function Table({ owner }) {
               <button type="button" className="btn btn-ghost" onClick={() => addChip(bet)} disabled={!bet}>
                 2×
               </button>
-              <button type="button" className="btn btn-primary ml-auto min-w-32 px-6" onClick={startRound} disabled={!bet || bet > balance}>
+              <button type="button" className="btn btn-primary ml-auto min-w-32 px-6" onClick={startRound} disabled={!bet || bet > balance || working}>
                 Deal
               </button>
             </div>
@@ -246,16 +305,16 @@ function Table({ owner }) {
           </>
         ) : (
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <button type="button" className="btn btn-primary" disabled={!playerCanAct || busy} onClick={() => update(bj.hit(g))}>
+            <button type="button" className="btn btn-primary" disabled={!playerCanAct || busy || working} onClick={hit}>
               Hit
             </button>
-            <button type="button" className="btn btn-ghost" disabled={!playerCanAct || busy} onClick={() => update(bj.stand(g))}>
+            <button type="button" className="btn btn-ghost" disabled={!playerCanAct || busy || working} onClick={stand}>
               Stand
             </button>
-            <button type="button" className="btn btn-ghost" disabled={!bj.canDouble(g) || balance < bj.cost(g, 'double')} onClick={doubleDown}>
+            <button type="button" className="btn btn-ghost" disabled={!canDouble} onClick={doubleDown}>
               Double
             </button>
-            <button type="button" className="btn btn-ghost" disabled={!bj.canSplit(g) || balance < bj.cost(g, 'split')} onClick={splitHand}>
+            <button type="button" className="btn btn-ghost" disabled={!canSplit} onClick={splitHand}>
               Split
             </button>
           </div>

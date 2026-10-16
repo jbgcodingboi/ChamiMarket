@@ -2,13 +2,40 @@ import { memo } from 'react'
 import { Link } from 'react-router-dom'
 import { useNow } from '../../hooks/useNow.js'
 import { useUiStore } from '../../store/uiStore.js'
-import { formatPrice, formatRelativeTime, formatSharesShort } from '../../utils/format.js'
+import { BACKEND_ENABLED } from '../../services/backend/config.js'
+import { formatCurrency, formatPrice, formatRelativeTime, formatSharesShort } from '../../utils/format.js'
 import { ActivityIcon, PanelIcon } from '../ui/Icons.jsx'
 import SimTag from './SimTag.jsx'
 import { useFeedEntries } from './useFeedEntries.js'
 
+const GAME_NAME = { roulette: 'Roulette', blackjack: 'Blackjack', plinko: 'Plinko' }
+
+function GameLine({ entry }) {
+  const won = entry.net > 0
+  return (
+    <p className="leading-snug">
+      <span className="font-semibold">{entry.user}</span>{' '}
+      <span className="text-muted">{won ? 'won' : entry.net < 0 ? 'lost' : 'broke even'}</span>{' '}
+      {entry.net !== 0 && <span className={`font-semibold tabular ${won ? 'text-yes' : 'text-no'}`}>{formatCurrency(Math.abs(entry.net))}</span>}{' '}
+      <span className="text-muted">at</span>{' '}
+      <Link to={`/games/${entry.game}`} className="text-primary-300 hover:underline">
+        {GAME_NAME[entry.game] ?? entry.game}
+      </Link>
+      {entry.detail && <span className="text-muted"> ({entry.detail})</span>}
+    </p>
+  )
+}
+
 const FeedItem = memo(function FeedItem({ entry, now }) {
   const yes = entry.side === 'yes'
+  if (entry.action === 'game') {
+    return (
+      <li className="animate-feed-in border-b border-line px-4 py-3 text-sm last:border-0">
+        <GameLine entry={entry} />
+        <p className="mt-1 text-xs text-subtle">{formatRelativeTime(entry.ts, now)}</p>
+      </li>
+    )
+  }
   return (
     <li className="animate-feed-in border-b border-line px-4 py-3 text-sm last:border-0">
       <p className="leading-snug">
@@ -68,7 +95,13 @@ export default function ActivityFeed() {
             </p>
           )}
           <p className="border-t border-line px-4 py-2.5 text-[11px] leading-relaxed text-subtle">
-            Entries tagged <SimTag /> are simulated by demo traders. Others are paper trades made on this device.
+            {BACKEND_ENABLED ? (
+              'Paper trades and game results from every player, live.'
+            ) : (
+              <>
+                Entries tagged <SimTag /> are simulated by demo traders. Others are paper trades made on this device.
+              </>
+            )}
           </p>
         </>
       )}

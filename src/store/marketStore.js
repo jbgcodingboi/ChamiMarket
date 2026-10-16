@@ -1,6 +1,8 @@
 import { create } from 'zustand'
 import { CATEGORIES, MAX_HELD_MARKET_REFRESH, MAX_KNOWN_MARKETS } from '../config.js'
 import { fetchCatalog, fetchMarketById } from '../services/gamma.js'
+import * as backend from '../services/backend/api.js'
+import { BACKEND_ENABLED } from '../services/backend/config.js'
 import { fetchHouse } from '../services/house.js'
 import { loadQuick, parseParlayId } from '../services/quick/index.js'
 import { createMockMarkets, isMockId } from '../services/mockData.js'
@@ -143,7 +145,12 @@ export const useMarketStore = create((set, get) => ({
    * too, so positions still have a market to show and settle after kickoff.
    */
   async refreshHouse(heldIds = []) {
-    const house = await fetchHouse().catch(() => null)
+    const house = BACKEND_ENABLED
+      ? await backend
+          .serverMarkets({ categories: ['chaminade'], ids: heldIds.filter((id) => id.startsWith('cham-')) })
+          .then((markets) => ({ markets, results: {} }))
+          .catch(() => null)
+      : await fetchHouse().catch(() => null)
     if (!house) return
     const markets = house.markets.filter(isMarketShape)
     set((s) => ({ houseList: markets, houseResults: house.results, known: addToKnown(s.known, markets, heldIds) }))
@@ -158,6 +165,15 @@ export const useMarketStore = create((set, get) => ({
    * their legs' current prices.
    */
   async refreshQuick(heldIds = []) {
+    if (BACKEND_ENABLED) {
+      // The server builds, prices and settles Quick markets (see scripts/sync-backend.mjs).
+      const markets = (await backend.serverMarkets({ categories: ['quick'], ids: heldIds.filter((id) => id.startsWith('q-')) }).catch(() => [])).filter(isMarketShape)
+      set((s) => ({ quickList: markets, known: addToKnown(s.known, markets, heldIds) }))
+      writeJSON(KNOWN_KEY, get().known)
+      const s = get()
+      if (s.status === 'ready') s.setListing(s.baseList, { source: s.source })
+      return
+    }
     const s0 = get()
     const listing = curate([...s0.baseList, ...s0.houseList])
     const { markets, results } = await loadQuick({ now: Date.now(), listing, held: new Set(heldIds), lookup: getMarket })

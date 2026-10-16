@@ -15,6 +15,8 @@ import { isPlainObject, readJSON, removeKey, writeJSON } from '../utils/storage.
 import { hasEnded } from '../utils/curation.js'
 import { applyResolutions, executeBuy, executeSell, TradeError } from '../utils/trading.js'
 import { displayNameFor, isEmail, validateIdentifier, validatePassword } from '../utils/validation.js'
+import { BACKEND_ENABLED, usernameFor } from '../services/backend/config.js'
+import * as backend from '../services/backend/api.js'
 import { useFeedStore } from './feedStore.js'
 import { getMarket } from './marketStore.js'
 import { getOutcomePrice, marketPrice } from './prices.js'
@@ -50,6 +52,34 @@ export function readPortfolio(userId) {
 
 const publicUser = (a) => ({ id: a.id, username: a.username, kind: a.kind })
 
+/**
+ * Backend mode: settlement entries already seen, so each server-side payout
+ * is announced once.
+ */
+let seenSettlements = null
+
+function newSettlements(portfolio) {
+  const entries = portfolio.history.filter((e) => e.type === 'settlement')
+  if (!seenSettlements) {
+    seenSettlements = new Set(entries.map((e) => e.id))
+    return []
+  }
+  const fresh = entries.filter((e) => !seenSettlements.has(e.id))
+  for (const e of fresh) seenSettlements.add(e.id)
+  const byMarket = new Map()
+  for (const e of fresh) {
+    const s = byMarket.get(e.marketId) ?? { marketId: e.marketId, outcome: /void/i.test(e.note ?? '') ? 'void' : /yes/i.test(e.note ?? '') ? 'yes' : 'no', payout: 0, realizedPnl: 0, entries: [] }
+    s.payout = Math.round((s.payout + e.amount) * 100) / 100
+    s.realizedPnl = Math.round((s.realizedPnl + (e.realizedPnl ?? 0)) * 100) / 100
+    s.entries.push(e)
+    byMarket.set(e.marketId, s)
+  }
+  return [...byMarket.values()]
+}
+
+/** A server portfolio in the shape the app uses everywhere. */
+const fromServer = (p) => sanitizePortfolio({ ...p, cash: Number(p.cash), realizedPnl: Number(p.realizedPnl), runStartCash: Number(p.runStartCash) })
+
 class AuthError extends Error {
   constructor(message, field) {
     super(message)
@@ -64,12 +94,44 @@ export const useAccountStore = create((set, get) => ({
   ready: false,
 
   init() {
+    if (BACKEND_ENABLED) {
+      set({ accounts: [], ready: false })
+      backend
+        .currentUser()
+        .then((user) => (user ? get().loadRemote(user) : null))
+        .catch(() => {})
+        .finally(() => set({ ready: true }))
+      return []
+    }
     const accounts = readAccounts()
     const session = readJSON(SESSION_KEY, isSession, null)
     const account = session ? accounts.find((a) => a.id === session.userId) : null
     if (session && !account) removeKey(SESSION_KEY)
     set({ accounts, ready: true })
     return account ? get().activate(account) : []
+  },
+
+  /** Backend mode: loads the signed-in player's portfolio from the server. Returns new settlements. */
+  async loadRemote(user) {
+    const raw = await backend.getPortfolio()
+    const portfolio = fromServer(raw)
+    set({ user: { ...user, username: raw.username ?? user.username }, portfolio })
+    return newSettlements(portfolio)
+  },
+
+  /** Backend mode: re-reads the portfolio (picks up server-side settlements). */
+  async refreshRemote() {
+    const { user } = get()
+    if (!BACKEND_ENABLED || !user) return []
+    return get().loadRemote(user)
+  },
+
+  /** Backend mode: adopts a portfolio returned by a server call. */
+  adoptRemote(raw) {
+    if (!raw || !get().user) return
+    const portfolio = fromServer(raw)
+    newSettlements(portfolio)
+    set({ portfolio })
   },
 
   /** Makes an account active, applying any pending market settlements. */
@@ -92,6 +154,20 @@ export const useAccountStore = create((set, get) => ({
     const pwError = validatePassword(password)
     if (pwError) throw new AuthError(pwError, 'password')
     if (password !== confirm) throw new AuthError('Passwords do not match.', 'confirm')
+    if (BACKEND_ENABLED) {
+      if (password.length > 72) throw new AuthError('Password must be 72 characters or fewer.', 'password')
+      const username = usernameFor(identifier)
+      if (!(await backend.usernameAvailable(username))) {
+        throw new AuthError(
+          isEmail(identifier.trim()) ? `The name "${username}" from that email is taken. Sign up with a username instead.` : 'That username is taken.',
+          'identifier',
+        )
+      }
+      const user = await backend.signUp({ identifier, password, username })
+      seenSettlements = null
+      await get().loadRemote(user)
+      return get().user
+    }
     const normalized = identifier.trim().toLowerCase()
     const accounts = readAccounts()
     if (accounts.some((a) => a.identifier === normalized)) {
@@ -124,6 +200,12 @@ export const useAccountStore = create((set, get) => ({
   async logIn({ identifier, password }) {
     if (!identifier.trim()) throw new AuthError('Enter your username or email.', 'identifier')
     if (!password) throw new AuthError('Enter your password.', 'password')
+    if (BACKEND_ENABLED) {
+      const user = await backend.logIn({ identifier, password })
+      seenSettlements = null
+      await get().loadRemote(user)
+      return { user: get().user, settled: [] }
+    }
     const accounts = readAccounts()
     const account = accounts.find((a) => a.identifier === identifier.trim().toLowerCase())
     const ok = account ? await verifyPassword(password, account) : false
@@ -140,6 +222,12 @@ export const useAccountStore = create((set, get) => ({
   },
 
   logOut() {
+    if (BACKEND_ENABLED) {
+      backend.logOut()
+      seenSettlements = null
+      set({ user: null, portfolio: null })
+      return
+    }
     removeKey(SESSION_KEY)
     set({ user: null, portfolio: null })
   },
@@ -147,6 +235,11 @@ export const useAccountStore = create((set, get) => ({
   commit(portfolio) {
     const { user } = get()
     if (!user) return
+    if (BACKEND_ENABLED) {
+      // In-memory only: the server holds the real portfolio.
+      set({ portfolio })
+      return
+    }
     writeJSON(portfolioKey(user.id), portfolio)
     set({ portfolio })
   },
@@ -154,7 +247,7 @@ export const useAccountStore = create((set, get) => ({
   /** Re-reads the active portfolio, e.g. after another tab changed it. */
   syncFromStorage() {
     const { user } = get()
-    if (!user) return
+    if (!user || BACKEND_ENABLED) return
     const accounts = readAccounts()
     if (!accounts.some((a) => a.id === user.id)) {
       get().logOut()
@@ -171,7 +264,8 @@ export const useAccountStore = create((set, get) => ({
 
   snapshot({ force = false } = {}) {
     const { portfolio } = get()
-    if (!portfolio) return
+    // The server records snapshots in backend mode.
+    if (!portfolio || BACKEND_ENABLED) return
     const next = addSnapshot(portfolio, get().netWorth(), Date.now(), {
       force,
       minIntervalMs: SNAPSHOT_INTERVAL_MS,
@@ -182,6 +276,7 @@ export const useAccountStore = create((set, get) => ({
   buy({ marketId, side, amount }) {
     const { user, portfolio } = get()
     if (!user || !portfolio) throw new TradeError('Log in to trade.')
+    if (BACKEND_ENABLED) return get().remoteBuy({ marketId, side, amount })
     const market = getMarket(marketId)
     if (!market) throw new TradeError('This market is no longer available.')
     if (own(useResolutionStore.getState().resolutions, marketId) || market.closed) {
@@ -204,9 +299,29 @@ export const useAccountStore = create((set, get) => ({
     return entry
   },
 
+  async remoteBuy({ marketId, side, amount }) {
+    const market = getMarket(marketId)
+    const res = await backend.buy({ marketId, side, amount, seenPrice: market ? marketPrice(market, side) : null }).catch((err) => {
+      throw new TradeError(err.message)
+    })
+    get().adoptRemote(res.portfolio)
+    return { shares: Number(res.shares), price: Number(res.price), amount: Number(res.amount), marketId, side }
+  },
+
+  async remoteSell({ marketId, side, shares }) {
+    const market = getMarket(marketId)
+    const res = await backend.sell({ marketId, side, shares, seenPrice: market ? marketPrice(market, side) : null }).catch((err) => {
+      throw new TradeError(err.message)
+    })
+    get().adoptRemote(res.portfolio)
+    const preview = { shares: Number(res.shares), proceeds: Number(res.proceeds), realizedPnl: Number(res.realizedPnl), isFull: res.isFull }
+    return { entry: { ...preview, price: Number(res.price), marketId, side }, preview }
+  },
+
   sell({ marketId, side, shares }) {
     const { user, portfolio } = get()
     if (!user || !portfolio) throw new TradeError('Log in to trade.')
+    if (BACKEND_ENABLED) return get().remoteSell({ marketId, side, shares })
     if (own(useResolutionStore.getState().resolutions, marketId)) {
       throw new TradeError('This market is resolved. Positions settle automatically.')
     }
@@ -235,6 +350,7 @@ export const useAccountStore = create((set, get) => ({
   applyPendingResolutions() {
     const { portfolio } = get()
     if (!portfolio) return []
+    if (BACKEND_ENABLED) return get().refreshRemote()
     const { portfolio: next, settled } = applyResolutions(portfolio, useResolutionStore.getState().resolutions)
     if (settled.length) {
       get().commit(next)
@@ -246,6 +362,7 @@ export const useAccountStore = create((set, get) => ({
   resetBalance() {
     const { portfolio } = get()
     if (!portfolio) return
+    if (BACKEND_ENABLED) return backend.resetBalance().then((p) => get().adoptRemote(p))
     get().commit(resetPortfolio(portfolio, Date.now(), randomId('reset')))
   },
 }))

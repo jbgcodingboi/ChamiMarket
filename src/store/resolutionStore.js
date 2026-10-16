@@ -23,6 +23,11 @@ export const useResolutionStore = create((set, get) => ({
     set({ resolutions: readJSON(KEY, isResolutions, {}) })
   },
 
+  /** Backend mode: results come from the server, which also settles every position. */
+  replace(resolutions) {
+    set({ resolutions })
+  },
+
   /** Records a resolution once. Returns false if the market was already resolved. */
   resolve(marketId, outcome, { source = 'api', title = '' } = {}) {
     const current = readJSON(KEY, isResolutions, {})

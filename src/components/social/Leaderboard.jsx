@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useLeaderboard } from '../../hooks/useLeaderboard.js'
+import { BACKEND_ENABLED } from '../../services/backend/config.js'
 import { useAccountStore } from '../../store/accountStore.js'
 import { useUiStore } from '../../store/uiStore.js'
 import { formatCurrency, formatPercent, formatSignedCurrency, pnlTone } from '../../utils/format.js'
@@ -187,9 +188,15 @@ export default function Leaderboard() {
         </table>
       </div>
       <p className="text-xs text-subtle">
-        Local accounts are valued at current prices, and every figure counts the current run since signup or the last
-        reset. Traders tagged <SimTag /> are simulated demo players: their portfolios move with market prices plus a small
-        random drift, and their game results are generated.
+        {BACKEND_ENABLED ? (
+          'Every player is valued at current prices, and every figure counts the current run since sign-up or the last reset. Trades, games and payouts are all checked on the server.'
+        ) : (
+          <>
+            Local accounts are valued at current prices, and every figure counts the current run since signup or the last
+            reset. Traders tagged <SimTag /> are simulated demo players: their portfolios move with market prices plus a
+            small random drift, and their game results are generated.
+          </>
+        )}
       </p>
     </div>
   )

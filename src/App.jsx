@@ -4,6 +4,7 @@ import AppEffects from './AppEffects.jsx'
 import AuthModal from './components/AuthModal.jsx'
 import Footer from './components/layout/Footer.jsx'
 import Header from './components/layout/Header.jsx'
+import RecoveryCodeModal from './components/RecoveryCodeModal.jsx'
 import ResetBalanceModal from './components/ResetBalanceModal.jsx'
 import ErrorBoundary from './components/ui/ErrorBoundary.jsx'
 import { PageSkeleton } from './components/ui/Skeleton.jsx'
@@ -62,6 +63,7 @@ export default function App() {
       </div>
       <AuthModal />
       <ResetBalanceModal />
+      <RecoveryCodeModal />
       <Toaster />
     </HashRouter>
   )
