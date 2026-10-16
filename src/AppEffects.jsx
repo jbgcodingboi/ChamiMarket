@@ -13,6 +13,7 @@ import { useFeedStore } from './store/feedStore.js'
 import { flush as flushGames } from './store/gameStore.js'
 import { getMarket, isOrphanedDemoId, useMarketStore } from './store/marketStore.js'
 import { useMockTraderStore } from './store/mockTraderStore.js'
+import { useLegalStore } from './store/legalStore.js'
 import { useResolutionStore } from './store/resolutionStore.js'
 import { toast } from './store/toastStore.js'
 import { hasEnded } from './utils/curation.js'
@@ -166,6 +167,10 @@ export default function AppEffects() {
   useEffect(() => {
     if (!BACKEND_ENABLED) return undefined
     const stops = [useFeedStore.getState().connect()]
+    // A sleeping tab can lose its live connection, so catch up when it's shown again.
+    const onVisible = () => document.visibilityState === 'visible' && useFeedStore.getState().refresh()
+    document.addEventListener('visibilitychange', onVisible)
+    stops.push(() => document.removeEventListener('visibilitychange', onVisible))
     stops.push(
       backend.onAuthChange((event, user) => {
         const account = useAccountStore.getState()
@@ -178,6 +183,9 @@ export default function AppEffects() {
 
   usePolling(refreshMarkets, POLL_INTERVAL_MS)
 
+  // Agreeing to the Terms in one tab closes the pop-up in the others.
+  useEffect(() => subscribeToKey('terms', () => useLegalStore.getState().reload()), [])
+
   useEffect(() => {
     if (BACKEND_ENABLED) return undefined
     const unsubs = [
@@ -186,8 +194,10 @@ export default function AppEffects() {
         useResolutionStore.getState().load()
         Promise.resolve(useAccountStore.getState().applyPendingResolutions()).then(notifySettled)
       }),
+      // Another tab signed in or out. Follow it in memory only: clearing the shared
+      // session here would sign every other tab out too.
       subscribeToKey('session', () => {
-        useAccountStore.getState().logOut()
+        useAccountStore.setState({ user: null, portfolio: null })
         notifySettled(useAccountStore.getState().init())
       }),
     ]

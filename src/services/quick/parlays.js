@@ -12,10 +12,8 @@ export function parseParlayId(id) {
   const legs = id
     .slice('q-parlay-'.length)
     .split('~')
-    .map((part) => {
-      const i = part.lastIndexOf('_')
-      return { id: part.slice(0, i), side: part.slice(i + 1) === 'y' ? 'yes' : 'no' }
-    })
+    // Same reading as the server's quote: a trailing _y is Yes, anything else No.
+    .map((part) => ({ id: part.replace(/_[yn]$/, ''), side: /_y$/.test(part) ? 'yes' : 'no' }))
   return legs.length >= 2 && legs.every((l) => l.id) ? legs : null
 }
 
@@ -24,7 +22,8 @@ export function parseParlayId(id) {
  * pending, given in the same order as the legs).
  */
 export function parlayOutcome(legs, outcomes) {
+  // A losing leg decides it whatever else happens, so the result never depends on which leg settled first.
+  if (legs.some((l, i) => (outcomes[i] === 'yes' || outcomes[i] === 'no') && outcomes[i] !== l.side)) return 'no'
   if (outcomes.some((o) => o === 'void')) return 'void'
-  if (legs.some((l, i) => outcomes[i] && outcomes[i] !== l.side)) return 'no'
   return outcomes.every((o, i) => o === legs[i].side) ? 'yes' : null
 }

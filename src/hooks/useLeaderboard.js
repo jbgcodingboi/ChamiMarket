@@ -23,7 +23,11 @@ function proTraderEquity(trader, holdings, drift) {
   return roundMoney((cents / 100) * drift)
 }
 
-/** The simulated pro traders as leaderboard rows, highest net worth first. */
+/**
+ * The simulated pro traders as leaderboard rows, in their fixed list order
+ * (roughly richest first), so the filler picked from them stays the same
+ * names as prices move. The boards sort rows themselves.
+ */
 function useSimRows() {
   const tick = useMarketStore((s) => s.tick)
   const { holdings, drift, simTrades } = useMockTraderStore()
@@ -48,7 +52,7 @@ function useSimRows() {
           openPositions: (holdings[trader.name] ?? []).length,
           games,
         }
-      }).sort((a, b) => b.netWorth - a.netWorth),
+      }),
     // tick invalidates prices read through getMarket.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [tick, holdings, drift, simTrades],

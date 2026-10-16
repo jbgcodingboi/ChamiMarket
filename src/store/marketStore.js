@@ -5,6 +5,7 @@ import * as backend from '../services/backend/api.js'
 import { BACKEND_ENABLED } from '../services/backend/config.js'
 import { fetchHouse } from '../services/house.js'
 import { loadQuick, parseParlayId } from '../services/quick/index.js'
+import { withLiveAbovePrices } from '../services/quick/crypto.js'
 import { createMockMarkets, isMockId } from '../services/mockData.js'
 import { fetchSnapshot } from '../services/snapshot.js'
 import { curate } from '../utils/curation.js'
@@ -167,7 +168,9 @@ export const useMarketStore = create((set, get) => ({
   async refreshQuick(heldIds = []) {
     if (BACKEND_ENABLED) {
       // The server builds, prices and settles Quick markets (see scripts/sync-backend.mjs).
-      const markets = (await backend.serverMarkets({ categories: ['quick'], ids: heldIds.filter((id) => id.startsWith('q-')) }).catch(() => [])).filter(isMarketShape)
+      const synced = (await backend.serverMarkets({ categories: ['quick'], ids: heldIds.filter((id) => id.startsWith('q-')) }).catch(() => [])).filter(isMarketShape)
+      // Hourly crypto odds move by the minute; show the live price the server will charge.
+      const markets = await withLiveAbovePrices(synced).catch(() => synced)
       set((s) => ({ quickList: markets, known: addToKnown(s.known, markets, heldIds) }))
       writeJSON(KNOWN_KEY, get().known)
       const s = get()

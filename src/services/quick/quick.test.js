@@ -87,13 +87,16 @@ describe('weather', () => {
     const titles = markets.map((m) => m.title)
     expect(titles).toContain('Central Park hits 75°F today?')
     expect(titles).not.toContain('Central Park hits 70°F today?')
-    expect(titles).not.toContain('Rain or snow at Central Park today?') // closed at 7 AM
+    expect(titles).not.toContain('Rain or snow at Central Park today?') // closed at midnight
     const high = markets.find((m) => m.title.includes('75°F'))
     expect(high.yesPrice).toBeCloseTo(probHighAtLeast(75, 75, 2.5), 3)
     expect(high.endDate).toBe(new Date(etInstant('2026-10-16', '11:00')).toISOString())
-    const early = buildWeatherMarkets(STATIONS[0], parseForecast(forecast), Date.parse('2026-10-16T09:00:00Z'))
-    const rain = early.find((m) => m.title.startsWith('Rain or snow'))
+    // The evening before, the next day's rain market is open.
+    const evening = buildWeatherMarkets(STATIONS[0], parseForecast(forecast), Date.parse('2026-10-16T01:00:00Z'))
+    const rain = evening.find((m) => m.title === 'Rain or snow at Central Park tomorrow?')
     expect(rain.yesPrice).toBeCloseTo(1 - 0.4 * 0.8, 2)
+    expect(rain.endDate).toBe(new Date(etInstant('2026-10-16', '00:00')).toISOString())
+    expect(buildWeatherMarkets(STATIONS[0], parseForecast(forecast), Date.parse('2026-10-16T05:00:00Z')).some((m) => m.title.startsWith('Rain or snow'))).toBe(false)
   })
   it('lists Mineola from its own forecast and settles it at JFK, the closest climate station', () => {
     const mineola = STATIONS.find((st) => st.id === 'mnl')
@@ -162,7 +165,7 @@ describe('ESPN settlement', () => {
       },
     ],
   }
-  const market = { title: 'Seahawks vs. Broncos', league: 'nfl', labels: { yes: 'Seahawks', no: 'Broncos' } }
+  const market = { title: 'Seahawks vs. Broncos', league: 'nfl', labels: { yes: 'Seahawks', no: 'Broncos' }, gameStart: '2026-10-16T00:15:00Z' }
   it('settles a moneyline market once the game is final', () => {
     const games = parseScoreboard(board)
     expect(isEspnSettleable(market)).toBe(true)
@@ -179,6 +182,13 @@ describe('ESPN settlement', () => {
     expect(isEspnSettleable({ title: 'Thunder vs. Rockets', league: 'nba', labels: { yes: 'Thunder', no: 'Rockets' } })).toBe(true)
     expect(isEspnSettleable({ ...market, labels: { yes: 'Yes', no: 'No' } })).toBe(false)
   })
+  it('never guesses between games: needs a start time and exactly one game near it', () => {
+    const games = parseScoreboard(board)
+    expect(espnOutcome({ ...market, gameStart: undefined }, games)).toBeNull()
+    expect(espnOutcome({ ...market, gameStart: '2026-10-17T00:15:00Z' }, games)).toBeNull() // the next day's rematch
+    const second = { ...board.events[0], date: '2026-10-16T02:15Z' }
+    expect(espnOutcome(market, parseScoreboard({ events: [board.events[0], second] }))).toBeNull() // doubleheader
+  })
 })
 
 describe('parlays (no longer listed, still settled)', () => {
@@ -190,5 +200,7 @@ describe('parlays (no longer listed, still settled)', () => {
     expect(parlayOutcome(legs, ['yes', 'yes'])).toBe('no')
     expect(parlayOutcome(legs, ['yes', 'no'])).toBe('yes')
     expect(parlayOutcome(legs, ['void', 'no'])).toBe('void')
+    expect(parlayOutcome(legs, ['no', 'void'])).toBe('no') // a loss beats a void, in any order
+    expect(parlayOutcome(legs, ['void', 'yes'])).toBe('no')
   })
 })

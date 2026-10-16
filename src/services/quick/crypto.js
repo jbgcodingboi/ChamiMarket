@@ -7,7 +7,7 @@
  * Settlement uses Coinbase 1-minute candles, so it lands within a minute or
  * two of the window ending.
  */
-import { clamp, normalCdf } from '../../utils/math.js'
+import { clamp, normalCdf, roundPrice } from '../../utils/math.js'
 import { etHour, etRange, etTime } from '../../utils/time.js'
 import { fetchJson } from '../http.js'
 import { quickMarket } from './common.js'
@@ -108,6 +108,7 @@ export function buildCoinMarkets(coin, data, now) {
           createdAt: end - HOUR,
           yesPrice: clamp(probAbove(data.spot, strike, data.sigma, minutes), 0.02, 0.98),
           avatar: coin.id,
+          quote: { product: coin.product, sigma: data.sigma },
         }),
       )
     }
@@ -145,7 +146,9 @@ export function cryptoOutcome(parsed, candles, now) {
 export async function fetchCandles(product, startMs, endMs) {
   const url = `${COINBASE}/products/${product}/candles?granularity=60&start=${new Date(startMs).toISOString()}&end=${new Date(endMs).toISOString()}`
   const rows = await fetchJson(url, { memoMs: 30000 })
-  return Array.isArray(rows) ? rows.filter((r) => Array.isArray(r) && r.length >= 5 && r.every(Number.isFinite)) : []
+  // A bad answer is an error, not "no candles", so it can never void a market.
+  if (!Array.isArray(rows)) throw new Error('Coinbase sent no candle list')
+  return rows.filter((r) => Array.isArray(r) && r.length >= 5 && r.every(Number.isFinite))
 }
 
 export async function fetchCoinData(coin, now) {
@@ -157,4 +160,32 @@ export async function fetchCoinData(coin, now) {
   const hourStart = Math.floor(now / HOUR) * HOUR
   const open = candles.find((c) => c[0] * 1000 === hourStart)?.[3] ?? null
   return { spot: Number.isFinite(spot) ? spot : null, sigma: sigmaFromCandles(candles), hourOpen: open }
+}
+
+/**
+ * Backend mode: reprices hourly "above" markets from live Coinbase spot, the
+ * same way the server does at trade time (private.above_prob), so the odds a
+ * player sees match the price they get. Markets without a quote, or whose
+ * coin can't be fetched, keep their synced price.
+ */
+export async function withLiveAbovePrices(markets, now = Date.now()) {
+  const products = [...new Set(markets.map((m) => m.quote?.product).filter((p) => COINS.some((c) => c.product === p)))]
+  const spots = Object.fromEntries(
+    await Promise.all(
+      products.map(async (p) => {
+        const t = await fetchJson(`${COINBASE}/products/${p}/ticker`, { memoMs: 10000 }).catch(() => null)
+        const spot = Number(t?.price)
+        return [p, spot > 0 ? spot : null]
+      }),
+    ),
+  )
+  return markets.map((m) => {
+    const parsed = parseCryptoId(m.id)
+    const spot = spots[m.quote?.product]
+    const sigma = Number(m.quote?.sigma)
+    if (parsed?.kind !== 'above' || !spot || !(sigma > 0)) return m
+    const minutes = (parsed.end - now) / MIN
+    const yes = roundPrice(minutes <= 0 ? (spot > parsed.strike ? 0.98 : 0.02) : clamp(probAbove(spot, parsed.strike, sigma, minutes), 0.02, 0.98))
+    return { ...m, yesPrice: yes, noPrice: roundPrice(1 - yes) }
+  })
 }
