@@ -45,6 +45,7 @@ Requires Node 20.19+ (Node 22 recommended).
 - **Social**: an activity feed mixing your local trades with clearly tagged simulated trades, and a leaderboard
   of local accounts plus simulated pro traders.
 - **Guest mode**: everything is browsable without an account; trading, the portfolio and resets need one.
+- **Games**: play-money Roulette, Blackjack and Plinko with their own chip balance (see below).
 
 ## How the paper trading math works
 
@@ -151,6 +152,29 @@ them without shared state. Code: `src/services/quick/`.
 outcomes) settle from ESPN's public scoreboard as soon as a game is final, instead of waiting hours for
 Polymarket's resolution. Only markets whose outcomes match both teams of one ESPN game are settled this way.
 
+## Games
+
+The **Games** tab has three casino games played with chips. Chips are separate from trading cash, so they never
+touch your portfolio, PnL or leaderboard rank. Each account (and the guest) starts with $10,000 in chips and can
+refill to $10,000 whenever the balance drops below $1,000. Every round is recorded with per-game stats (rounds,
+amount wagered, net) and a recent-results list. All randomness comes from the Web Crypto API with rejection
+sampling, so outcomes are unbiased.
+
+- **Roulette**: European single-zero wheel (37 pockets) with an animated SVG wheel and ball. Straight up pays
+  35:1, split 17:1, street 11:1, corner 8:1, six line 5:1, dozens and columns 2:1, and red/black, odd/even and
+  1-18/19-36 pay 1:1. Click a cell edge or corner for splits, streets, corners and six lines. Undo, clear, double
+  and rebet are built in. On phones the table turns upright so it fits without scrolling.
+- **Blackjack**: six-deck shoe reshuffled with about a quarter left. Blackjack pays 3:2, wins 1:1, insurance
+  2:1. The dealer peeks under an ace or ten and stands on all 17s, soft 17 included. Double on any first two
+  cards, split pairs up to four hands (split aces get one card each). A hand in progress survives a reload.
+- **Plinko**: a canvas board with gravity and a bounce off a pin on every row. Choose 8, 12 or 16 rows, low,
+  medium or high risk, and 1 to 25 balls at a time. Each ball goes left or right with equal chance at each row,
+  so buckets follow a binomial distribution; every row and risk setting returns about 99% over the long run.
+
+The engines are pure functions in `src/games/` (with tests). A round's stake is taken when it starts and the
+payout is credited when the animation ends; if you leave the page mid-spin or mid-drop, the payout is credited
+anyway. Wallets live in `localStorage` under `redbook:games:*`.
+
 ## Curation rules
 
 All of these live in `src/utils/curation.js` (with tests) and apply to live data, the snapshot and demo data alike.
@@ -206,7 +230,8 @@ src/
   components/   UI (layout, market, portfolio, social, ui primitives, modals)
   pages/        Route-level pages, lazy loaded
   services/     Gamma and CLOB clients, parsing, mock data, synthetic generators, simulated traders
-  store/        Zustand stores: markets, accounts and portfolios, resolutions, feed, toasts, UI
+  games/        Roulette, Blackjack and Plinko engines, physics and RNG (with Vitest tests)
+  store/        Zustand stores: markets, accounts and portfolios, resolutions, feed, chips, toasts, UI
   utils/        Pure financial math, formatters, storage, validation, hashing (with Vitest tests)
   hooks/        Polling, debounce, price flash, portfolio metrics, leaderboard
 ```
