@@ -254,6 +254,8 @@ browser. Connecting a free [Supabase](https://supabase.com) project turns Chami 
   Usernames can't copy a simulated player or look official (look-alikes such as `quietkeIIy` included).
 - **Delete account** in the account menu, after typing DELETE to confirm. The server
   (`delete_account`) removes the login and everything tied to it, including leaderboard rows and feed entries.
+- **Removing a player as the site owner**: Actions tab › "Admin - delete a player" › Run workflow, with their
+  username and DELETE. It deletes their login with the service role key and everything else cascades with it.
 - **Terms**: a first-visit pop-up with just a link to the full Terms of Use and one "I understand and agree" button
   (`#/terms`). Agreement is stored per browser and versioned by `TERMS_VERSION` in `src/config.js`, and sign-ups
   record the accepted version in the account's metadata.

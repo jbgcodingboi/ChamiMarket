@@ -1,0 +1,40 @@
+name: Admin - delete a player
+
+# Run by hand from the Actions tab: deletes one player and everything tied to
+# them (scripts/admin-delete-player.mjs). It can't be undone.
+on:
+  workflow_dispatch:
+    inputs:
+      username:
+        description: Username of the player to delete
+        required: true
+        type: string
+      confirm:
+        description: Type DELETE to confirm
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  delete:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - if: inputs.confirm != 'DELETE'
+        run: |
+          echo "Type DELETE in the confirm box to run this."
+          exit 1
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      - run: node scripts/admin-delete-player.mjs
+        env:
+          PLAYER: ${{ inputs.username }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
