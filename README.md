@@ -187,7 +187,7 @@ sampling, so outcomes are unbiased.
 - **Chicken Cross**: hop a chicken lane by lane across traffic. Easy survives 96% of lanes over 30 lanes, Medium 88%
   over 25, Hard 80% over 22 and Daredevil 60% over 18 (up to about 9,600×). Lane n pays 0.98 ÷ chanceⁿ, a 98% return.
   A tilted roadway with moving traffic, a multiplier on every lane's manhole, hop, cash-out and crash animations.
-- **Limbo & Crash**: one draw from 1.00× to 1,000,000× (`floor(2^24 × 99 ÷ (n + 1))` hundredths, where n is the
+- **Limbo** (with a Crash mode): one draw from 1.00× to 1,000,000× (`floor(2^24 × 99 ÷ (n + 1))` hundredths, where n is the
   first 3 bytes of the HMAC), so reaching x has a 99% ÷ x chance and every target returns 99%. **Limbo** pays your
   target times the bet when the draw reaches it. **Crash** draws the same number as the crash point and grows the
   multiplier as e^(0.00006 × ms) (2× after about 11.6 seconds): cash out before it crashes, or set an auto cash-out.
@@ -257,6 +257,21 @@ When a market resolves (from the live API or the snapshot), the active account i
 refresh. Other local accounts are settled automatically the next time they log in. Once an event's end date
 passes, buying and selling stop until the result is in.
 
+## Guests
+
+Nobody has to sign up to play. Once a visitor accepts the first-visit Terms pop-up they play as a **guest** with
+their own $100,000, trading and playing every game. Guests:
+
+- show as **Guest** in the market and game feeds, and are kept off the leaderboard;
+- keep their progress on this device between visits (the session is remembered);
+- keep **everything** when they sign up: the guest account itself gets the username and password, so the balance,
+  open positions, trade history and game stats carry over. Signing up with an email works the same way;
+- don't merge into an existing account when they log in instead (the log-in form says so), because that would let
+  anyone pour fresh $100,000 guest balances into one account.
+
+With the backend, a guest is a Supabase anonymous user. A guest nobody played as is removed after a day, and an
+idle one after 30 days, by the scheduled sync. In local mode the guest is a password-less account in the browser.
+
 ## Backend (Supabase)
 
 Without a backend every browser is its own little world: accounts, the leaderboard and the feed only cover that
@@ -305,6 +320,8 @@ backend, otherwise it stays in local mode. Accounts made in local mode don't mov
    it, Polymarket trades use the prices the sync job stores every few minutes.
 4. **Configure sign-in** under **Authentication > Sign In / Providers**:
    - **Email**: enabled, and turn **Confirm email** off. Players sign in right away and no email is ever sent.
+   - **Allow anonymous sign-ins**: on, so visitors can play as a guest without an account (see
+     [Guests](#guests)). With it off, everyone logs in before playing, as before.
    - Leave every other provider off.
    - Under **Authentication > Rate Limits**, raise the sign-up and sign-in limits if many students will register
      from one school network (they all share an IP address).

@@ -109,6 +109,13 @@ export default function Leaderboard() {
             {board.yoursLabel} <span className={`ml-1 font-semibold tabular ${boardId === 'overall' ? 'text-fg' : pnlTone(board.score(mine))}`}>{board.yours(mine)}</span>
           </p>
         </div>
+      ) : user?.guest ? (
+        <div className="card flex flex-wrap items-center justify-between gap-3 p-4 text-sm text-muted">
+          Guests don't rank. Sign up to join the leaderboard; your guest balance and history come with you.
+          <button type="button" className="btn btn-primary" onClick={() => openAuth('signup')}>
+            Sign up
+          </button>
+        </div>
       ) : user && boardId === 'games' ? (
         <div className="card flex flex-wrap items-center justify-between gap-3 p-4 text-sm text-muted">
           Play a round of any game to join the Games board.

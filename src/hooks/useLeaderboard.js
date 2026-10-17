@@ -75,6 +75,8 @@ function useLocalLeaderboard() {
   return useMemo(() => {
     const rows = []
     for (const account of readAccounts()) {
+      // Guests play but don't rank.
+      if (account.kind === 'guest') continue
       const p = readPortfolio(account.id)
       if (!p) continue
       const m = computeMetrics(p, getOutcomePrice)
