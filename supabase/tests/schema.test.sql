@@ -662,4 +662,28 @@ select public.sync_snapshots() \gset
 select pg_temp.ok(not exists (select 1 from auth.users where id = :'guest2') and exists (select 1 from auth.users where id = :'guest3'),
   'a guest who never played is removed after a day, one who played is kept for 30');
 
+-- Faster sync: the database asks GitHub to run the sync ---------------------------------
+reset role;
+select pg_temp.ok(private.dispatch_sync() is null, 'without a saved GitHub token the dispatch does nothing');
+-- Stand-ins for Supabase Vault and pg_net.
+create schema if not exists vault;
+create table vault.decrypted_secrets (name text, decrypted_secret text);
+create schema if not exists net;
+create table net.calls (url text, body jsonb, headers jsonb);
+create function net.http_post(url text, body jsonb, headers jsonb, timeout_milliseconds int) returns bigint language sql as $$
+  insert into net.calls values (url, body, headers) returning 42::bigint $$;
+select pg_temp.ok(private.dispatch_sync() is null, 'an empty vault still does nothing');
+insert into vault.decrypted_secrets values ('github_dispatch_token', 'ghp_test');
+select private.dispatch_sync() as dispatched \gset
+select pg_temp.ok(:dispatched = 42
+  and (select url from net.calls) = 'https://api.github.com/repos/jbgcodingboi/ChamiMarket/actions/workflows/sync-backend.yml/dispatches'
+  and (select body ->> 'ref' from net.calls) = 'main'
+  and (select headers ->> 'Authorization' from net.calls) = 'Bearer ghp_test', 'with a token it asks GitHub to run the sync on main');
+select pg_temp.expect_error($$set role authenticated; select private.dispatch_sync()$$, '%permission denied%');
+reset role;
+set client_min_messages = warning;
+drop schema net cascade;
+drop schema vault cascade;
+set client_min_messages = notice;
+
 \echo 'all database tests passed'
