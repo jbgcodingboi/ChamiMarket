@@ -2464,6 +2464,65 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------------------
+-- A reliable 5-minute sync
+--
+-- GitHub runs scheduled workflows late (often hours late) on busy days, but
+-- runs a "workflow_dispatch" request right away. So the database itself asks
+-- GitHub to run the sync every 5 minutes, with pg_cron and pg_net. It needs a
+-- GitHub token saved in Supabase Vault as github_dispatch_token (see README,
+-- "Faster sync"); without one it does nothing and the GitHub schedule stays
+-- the only trigger.
+-- ---------------------------------------------------------------------------
+
+/** Asks GitHub to run the sync workflow now. Returns the pg_net request id, or null when it can't. */
+create or replace function private.dispatch_sync() returns bigint
+language plpgsql volatile security definer set search_path = '' as $$
+declare v_token text; v_id bigint;
+begin
+  begin
+    select decrypted_secret into v_token from vault.decrypted_secrets where name = 'github_dispatch_token' limit 1;
+  exception when others then
+    return null;
+  end;
+  if coalesce(v_token, '') = '' then return null; end if;
+  select net.http_post(
+    url := 'https://api.github.com/repos/jbgcodingboi/ChamiMarket/actions/workflows/sync-backend.yml/dispatches',
+    body := '{"ref": "main"}'::jsonb,
+    headers := jsonb_build_object(
+      'Authorization', 'Bearer ' || v_token,
+      'Accept', 'application/vnd.github+json',
+      'X-GitHub-Api-Version', '2022-11-28',
+      'User-Agent', 'chami-market-sync',
+      'Content-Type', 'application/json'),
+    timeout_milliseconds := 10000
+  ) into v_id;
+  return v_id;
+exception when others then
+  raise warning 'dispatch_sync failed: %', sqlerrm;
+  return null;
+end $$;
+
+-- Every 5 minutes, when pg_cron and pg_net are available (they are on Supabase; turn them on under
+-- Database > Extensions if this notice says otherwise). Re-running this file updates the same job.
+do $$ begin
+  begin
+    execute 'create extension if not exists pg_net';
+  exception when others then null;
+  end;
+  begin
+    execute 'create extension if not exists pg_cron';
+  exception when others then null;
+  end;
+  if exists (select 1 from pg_extension where extname = 'pg_cron') and exists (select 1 from pg_extension where extname = 'pg_net') then
+    perform cron.schedule('chami-sync', '*/5 * * * *', 'select private.dispatch_sync()');
+  else
+    raise notice 'Faster sync is off: turn on the pg_cron and pg_net extensions, then run this file again.';
+  end if;
+exception when others then
+  raise notice 'Faster sync is off: %', sqlerrm;
+end $$;
+
+-- ---------------------------------------------------------------------------
 -- Who may call what
 -- ---------------------------------------------------------------------------
 
