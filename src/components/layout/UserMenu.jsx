@@ -5,7 +5,7 @@ import { useAccountStore } from '../../store/accountStore.js'
 import { toast } from '../../store/toastStore.js'
 import { useUiStore } from '../../store/uiStore.js'
 import { formatCurrency } from '../../utils/format.js'
-import { BriefcaseIcon, ChevronDownIcon, InfoIcon, LogOutIcon, RefreshIcon, TrashIcon, TrophyIcon } from '../ui/Icons.jsx'
+import { BriefcaseIcon, ChevronDownIcon, InfoIcon, LogInIcon, LogOutIcon, RefreshIcon, TrashIcon, TrophyIcon, UserPlusIcon } from '../ui/Icons.jsx'
 import { BACKEND_ENABLED } from '../../services/backend/config.js'
 import { createRecoveryCode } from '../../services/backend/api.js'
 
@@ -71,6 +71,7 @@ export default function UserMenu() {
         >
           <div className="border-b border-line px-3 pt-2 pb-3">
             <p className="truncate font-semibold">{user.username}</p>
+            {user.guest && <p className="mt-0.5 text-xs text-muted">Playing as a guest. Sign up to keep this balance and history.</p>}
             <dl className="mt-2 grid grid-cols-2 gap-2 text-xs">
               <div>
                 <dt className="text-muted">Net worth</dt>
@@ -100,7 +101,33 @@ export default function UserMenu() {
             >
               <RefreshIcon className={icon} /> Reset balance
             </button>
-            {BACKEND_ENABLED && (
+            {user.guest && (
+              <>
+                <button
+                  role="menuitem"
+                  type="button"
+                  className={`${item} font-semibold text-primary-300`}
+                  onClick={() => {
+                    setOpen(false)
+                    useUiStore.getState().openAuth('signup')
+                  }}
+                >
+                  <UserPlusIcon className="size-4 shrink-0" /> Sign up and keep progress
+                </button>
+                <button
+                  role="menuitem"
+                  type="button"
+                  className={item}
+                  onClick={() => {
+                    setOpen(false)
+                    useUiStore.getState().openAuth('login')
+                  }}
+                >
+                  <LogInIcon className={icon} /> Log in to an account
+                </button>
+              </>
+            )}
+            {BACKEND_ENABLED && !user.guest && (
               <button
                 role="menuitem"
                 type="button"
@@ -117,31 +144,35 @@ export default function UserMenu() {
                 <InfoIcon className={icon} /> New recovery code
               </button>
             )}
-            <button
-              role="menuitem"
-              type="button"
-              className={`${item} text-no`}
-              onClick={() => {
-                setOpen(false)
-                logOut()
-                toast({ title: 'Logged out', description: BACKEND_ENABLED ? 'Your paper portfolio is saved to your account.' : 'Your paper portfolio is saved on this device.' })
-              }}
-            >
-              <LogOutIcon className="size-4 shrink-0" /> Log out
-            </button>
-            <div className="mt-1.5 border-t border-line pt-1.5">
-              <button
-                role="menuitem"
-                type="button"
-                className={`${item} text-xs text-subtle hover:text-no`}
-                onClick={() => {
-                  setOpen(false)
-                  setDeleteOpen(true)
-                }}
-              >
-                <TrashIcon className="size-4 shrink-0" /> Delete account
-              </button>
-            </div>
+            {!user.guest && (
+              <>
+                <button
+                  role="menuitem"
+                  type="button"
+                  className={`${item} text-no`}
+                  onClick={() => {
+                    setOpen(false)
+                    logOut()
+                    toast({ title: 'Logged out', description: BACKEND_ENABLED ? 'Your paper portfolio is saved to your account.' : 'Your paper portfolio is saved on this device.' })
+                  }}
+                >
+                  <LogOutIcon className="size-4 shrink-0" /> Log out
+                </button>
+                <div className="mt-1.5 border-t border-line pt-1.5">
+                  <button
+                    role="menuitem"
+                    type="button"
+                    className={`${item} text-xs text-subtle hover:text-no`}
+                    onClick={() => {
+                      setOpen(false)
+                      setDeleteOpen(true)
+                    }}
+                  >
+                    <TrashIcon className="size-4 shrink-0" /> Delete account
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

@@ -51,7 +51,14 @@ export function readPortfolio(userId) {
   return stored ? sanitizePortfolio(stored) : null
 }
 
-const publicUser = (a) => ({ id: a.id, username: a.username, kind: a.kind })
+const publicUser = (a) => (a.kind === 'guest' ? { id: a.id, username: 'Guest', kind: 'guest', guest: true } : { id: a.id, username: a.username, kind: a.kind })
+
+/** Local mode: this browser's guest account (no password; it becomes a real account on sign-up). */
+const isLocalGuest = (a) => a.kind === 'guest'
+
+/** One guest start at a time, and none again once guest play turned out to be off. */
+let guestStart = null
+let guestUnavailable = false
 
 /**
  * Backend mode: settlement entries already seen, so each server-side payout
@@ -128,6 +135,39 @@ export const useAccountStore = create((set, get) => ({
     return account ? get().activate(account) : []
   },
 
+  /**
+   * Lets someone play without signing up: a guest with its own $100,000,
+   * kept off the leaderboard and shown as "Guest" in the feeds. Signing up
+   * later keeps everything. Called once the Terms are accepted.
+   */
+  ensureGuest() {
+    if (get().user || guestUnavailable) return Promise.resolve(get().user)
+    if (!BACKEND_ENABLED) {
+      const accounts = readAccounts()
+      let guest = accounts.find(isLocalGuest)
+      if (!guest) {
+        guest = { id: randomId('g'), username: 'Guest', identifier: '', kind: 'guest', salt: '', hash: '', iterations: PBKDF2_ITERATIONS, createdAt: Date.now() }
+        writeJSON(ACCOUNTS_KEY, [...accounts, guest])
+        writeJSON(portfolioKey(guest.id), createPortfolio())
+        set({ accounts: readAccounts() })
+      }
+      get().activate(guest)
+      return Promise.resolve(get().user)
+    }
+    const epoch = sessionEpoch
+    guestStart ??= backend
+      .signInAsGuest()
+      .then((user) => (epoch === sessionEpoch && !get().user ? get().loadRemote(user) : null))
+      .catch(() => {
+        // Anonymous sign-ins are off in Supabase (or the network is down): players log in as before.
+        guestUnavailable = true
+      })
+      .finally(() => {
+        guestStart = null
+      })
+    return guestStart.then(() => get().user)
+  },
+
   /** Backend mode: loads the signed-in player's portfolio from the server. Returns new settlements. */
   async loadRemote(user) {
     const epoch = sessionEpoch
@@ -136,7 +176,8 @@ export const useAccountStore = create((set, get) => ({
     // Signed out meanwhile, or a trade or game already returned a newer portfolio.
     if (epoch !== sessionEpoch || seq !== portfolioSeq) return []
     const portfolio = fromServer(raw)
-    set({ user: { ...user, username: raw.username ?? user.username }, portfolio })
+    // Guests keep showing as Guest; their placeholder name stays on the server.
+    set({ user: { ...user, username: user.guest ? 'Guest' : (raw.username ?? user.username) }, portfolio })
     return newSettlements(portfolio)
   },
 
@@ -191,14 +232,15 @@ export const useAccountStore = create((set, get) => ({
       if (password.length > 72) throw new AuthError('Password must be 72 characters or fewer.', 'password')
       const username = withEmail ? picked.trim() : usernameFor(identifier)
       if (!(await backend.usernameAvailable(username))) throw new AuthError('That username is taken.', nameField)
-      const user = await backend.signUp({ identifier, password, username })
+      // A guest keeps their balance and history: the same account gets the login.
+      const user = get().user?.guest ? await backend.convertGuest({ identifier, password, username }) : await backend.signUp({ identifier, password, username })
       seenSettlements = null
       await get().loadRemote(user)
       return get().user
     }
     const normalized = identifier.trim().toLowerCase()
     const accounts = readAccounts()
-    if (accounts.some((a) => a.identifier === normalized)) {
+    if (accounts.some((a) => !isLocalGuest(a) && a.identifier === normalized)) {
       throw new AuthError(
         isEmail(normalized) ? 'An account with this email already exists.' : 'That username is taken.',
         'identifier',
@@ -206,12 +248,22 @@ export const useAccountStore = create((set, get) => ({
     }
     const username = withEmail ? picked.trim() : displayNameFor(identifier)
     if (isReservedName(username)) throw new AuthError('That username is reserved. Pick another.', nameField)
-    if (accounts.some((a) => a.username.toLowerCase() === username.toLowerCase())) throw new AuthError('That username is taken.', nameField)
+    if (accounts.some((a) => !isLocalGuest(a) && a.username.toLowerCase() === username.toLowerCase())) throw new AuthError('That username is taken.', nameField)
     const secret = await hashPassword(password)
     // Hashing takes a moment; another tab may have taken the name meanwhile.
     const latest = readAccounts()
-    if (latest.some((a) => a.identifier === normalized || a.username.toLowerCase() === username.toLowerCase())) {
+    if (latest.some((a) => !isLocalGuest(a) && (a.identifier === normalized || a.username.toLowerCase() === username.toLowerCase()))) {
       throw new AuthError('That username is taken.', nameField)
+    }
+    // Signing up as the guest keeps the guest's portfolio: the account just gets a name and password.
+    const guest = get().user?.guest ? latest.find((a) => a.id === get().user.id && isLocalGuest(a)) : null
+    if (guest) {
+      const converted = { ...guest, username, identifier: normalized, kind: isEmail(normalized) ? 'email' : 'username', ...secret }
+      const nextAccounts = latest.map((a) => (a.id === guest.id ? converted : a))
+      writeJSON(ACCOUNTS_KEY, nextAccounts)
+      set({ accounts: nextAccounts })
+      get().activate(converted)
+      return publicUser(converted)
     }
     const account = {
       id: randomId('u'),
@@ -239,7 +291,7 @@ export const useAccountStore = create((set, get) => ({
       return { user: get().user, settled: [] }
     }
     const accounts = readAccounts()
-    const account = accounts.find((a) => a.identifier === identifier.trim().toLowerCase())
+    const account = accounts.find((a) => !isLocalGuest(a) && a.identifier === identifier.trim().toLowerCase())
     const ok = account ? await verifyPassword(password, account) : false
     if (!ok) throw new AuthError('Incorrect username/email or password.', 'password')
     if (account.iterations < PBKDF2_ITERATIONS) {

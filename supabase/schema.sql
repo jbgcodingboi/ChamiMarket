@@ -344,6 +344,16 @@ end $$;
 create or replace function private.username_of(p_user uuid) returns text
 language sql stable set search_path = '' as $$ select username::text from public.profiles where id = p_user $$;
 
+/** Guests play on an anonymous Supabase account until they sign up (which keeps everything). */
+create or replace function private.is_guest(p_user uuid) returns boolean
+language sql stable set search_path = '' as $$ select coalesce((select is_anonymous from auth.users where id = p_user), false) $$;
+
+/** The name shown in the public feeds: "Guest" for guests. */
+create or replace function private.feed_name(p_user uuid) returns text
+language sql stable set search_path = '' as $$
+  select case when private.is_guest(p_user) then 'Guest' else private.username_of(p_user) end
+$$;
+
 -- ---------------------------------------------------------------------------
 -- Market prices
 -- ---------------------------------------------------------------------------
@@ -685,33 +695,49 @@ language sql immutable set search_path = '' as $$
       where position(private.name_key(w) in private.name_key(p_name)) > 0)
     -- "sim" on its own or as a tag (sim_1, bot-sim) would pass as a simulated player.
     or lower(coalesce(p_name, '')) ~ '(^|[^a-z])sim([^a-z]|$)'
+    -- Names starting with guest would look like the Guest accounts in the feeds.
+    or private.name_key(p_name) like 'guest%'
 $$;
 
-/** Creates the profile and a $100,000 portfolio for every new sign-up. */
+/** The username rules for a new player, or a guest picking a name: raises when the name can't be used. */
+create or replace function private.check_username(p_name text, p_self uuid) returns void
+language plpgsql stable set search_path = '' as $$
+begin
+  -- Same rule as the sign-up form, so direct API sign-ups can't make look-alikes such as j.bg or jbg-.
+  if coalesce(p_name, '') !~ '^[A-Za-z0-9_]{3,20}$' then
+    raise exception 'Pick a username of 3 to 20 letters, numbers or underscores.';
+  end if;
+  if private.is_reserved_name(p_name) then raise exception 'That username is reserved. Pick another.'; end if;
+  -- No look-alikes of an existing player either (aIice next to alice).
+  if exists (select 1 from public.profiles where id is distinct from p_self and private.name_key(username::text) = private.name_key(p_name)) then
+    raise exception 'That username is taken.';
+  end if;
+end $$;
+
+/**
+ * Creates the profile and a $100,000 portfolio for every new sign-up. Guests
+ * (Supabase anonymous sign-ins) get a placeholder name until they sign up.
+ */
 create or replace function private.handle_new_user() returns trigger
 language plpgsql security definer set search_path = '' as $$
 declare v_name text := trim(coalesce(new.raw_user_meta_data ->> 'username', ''));
 begin
-  -- Same rule as the sign-up form, so direct API sign-ups can't make look-alikes such as j.bg or jbg-.
-  if v_name !~ '^[A-Za-z0-9_]{3,20}$' then
-    raise exception 'Pick a username of 3 to 20 letters, numbers or underscores.';
-  end if;
-  if private.is_reserved_name(v_name) then raise exception 'That username is reserved. Pick another.'; end if;
-  -- No look-alikes of an existing player either (aIice next to alice).
-  if exists (select 1 from public.profiles where private.name_key(username::text) = private.name_key(v_name)) then
-    raise exception 'That username is taken.';
-  end if;
-  -- A username's login address (<name>@users.chamimarket.app, see VITE_USERNAME_EMAIL_DOMAIN) belongs to that
-  -- username only, so nobody can claim someone else's login name under a different profile name.
-  if lower(new.email) like '%@users.chamimarket.app' and lower(split_part(new.email, '@', 1)) <> lower(v_name) then
-    raise exception 'That username is not available.';
+  if coalesce(new.is_anonymous, false) then
+    -- The hyphen keeps it apart from real usernames, which can't have one.
+    v_name := 'guest-' || left(replace(new.id::text, '-', ''), 12);
+  else
+    perform private.check_username(v_name, null);
+    -- A username's login address (<name>@users.chamimarket.app, see VITE_USERNAME_EMAIL_DOMAIN) belongs to that
+    -- username only, so nobody can claim someone else's login name under a different profile name.
+    if lower(new.email) like '%@users.chamimarket.app' and lower(split_part(new.email, '@', 1)) <> lower(v_name) then
+      raise exception 'That username is not available.';
+    end if;
   end if;
   insert into public.profiles (id, username) values (new.id, v_name);
   insert into public.portfolios (user_id, cash, run_start_cash) values (new.id, 100000, 100000);
   insert into public.equity_snapshots (user_id, equity) values (new.id, 100000);
   return new;
 end $$;
-
 drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created after insert on auth.users for each row execute function private.handle_new_user();
 
@@ -738,6 +764,28 @@ $$;
 
 create index if not exists profiles_name_key_idx on public.profiles (private.name_key(username::text));
 
+/**
+ * A guest picks their username just before signing up, so the account (and
+ * its balance, trades and games) carries over: the browser then sets the
+ * login email and password on this same account. Only guests can call it.
+ */
+create or replace function public.claim_guest(p_username text) returns jsonb
+language plpgsql volatile security definer set search_path = '' as $$
+declare v_user uuid := private.uid(); v_name text := trim(coalesce(p_username, ''));
+begin
+  perform private.rate_limit(v_user, 'claim', 10);
+  if not private.is_guest(v_user) then return jsonb_build_object('error', 'This account already has a username.'); end if;
+  begin
+    perform private.check_username(v_name, v_user);
+  exception when others then
+    return jsonb_build_object('error', sqlerrm);
+  end;
+  update public.profiles set username = v_name where id = v_user;
+  return jsonb_build_object('username', v_name);
+exception when unique_violation then
+  return jsonb_build_object('error', 'That username is taken.');
+end $$;
+
 create or replace function public.get_portfolio() returns jsonb
 language plpgsql volatile security definer set search_path = '' as $$
 declare v_user uuid := private.uid();
@@ -755,6 +803,7 @@ language plpgsql volatile security definer set search_path = '' as $$
 declare v_user uuid := private.uid(); alphabet text := 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; code text := ''; i int;
 begin
   perform private.rate_limit(v_user, 'recovery', 5);
+  if private.is_guest(v_user) then raise exception 'Sign up first, then make a recovery code.'; end if;
   for i in 1..12 loop
     code := code || substr(alphabet, private.rand_int(length(alphabet)) + 1, 1);
     if i in (4, 8) then code := code || '-'; end if;
@@ -862,7 +911,7 @@ begin
   values (v_user, pf.run, 'buy', p_market_id, q.title, p_side, v_shares, q.price, spend);
   select labels ->> p_side into label from public.markets where id = p_market_id;
   insert into public.activity (user_id, username, kind, market_id, market_title, side, side_label, shares, price, amount)
-  values (v_user, private.username_of(v_user), 'buy', p_market_id, q.title, p_side, coalesce(label, initcap(p_side)), v_shares, q.price, spend);
+  values (v_user, private.feed_name(v_user), 'buy', p_market_id, q.title, p_side, coalesce(label, initcap(p_side)), v_shares, q.price, spend);
   perform private.snapshot(v_user, true);
   return jsonb_build_object('price', q.price, 'shares', v_shares, 'amount', spend, 'portfolio', private.portfolio_json(v_user));
 end $$;
@@ -906,7 +955,7 @@ begin
   values (v_user, pf.run, 'sell', p_market_id, pos.market_title, p_side, sold, q.price, proceeds, pnl);
   select labels ->> p_side into label from public.markets where id = p_market_id;
   insert into public.activity (user_id, username, kind, market_id, market_title, side, side_label, shares, price, amount)
-  values (v_user, private.username_of(v_user), 'sell', p_market_id, pos.market_title, p_side, coalesce(label, initcap(p_side)), sold, q.price, proceeds);
+  values (v_user, private.feed_name(v_user), 'sell', p_market_id, pos.market_title, p_side, coalesce(label, initcap(p_side)), sold, q.price, proceeds);
   perform private.snapshot(v_user, true);
   return jsonb_build_object('price', q.price, 'shares', sold, 'proceeds', proceeds, 'realizedPnl', pnl, 'isFull', full_sale,
     'portfolio', private.portfolio_json(v_user));
@@ -1021,7 +1070,7 @@ begin
     return jsonb_build_object('error', 'Thanks! That''s a lot of feedback for now. Try again in an hour.');
   end if;
   insert into public.feedback (user_id, username, category, message, page)
-  values (v_user, private.username_of(v_user), p_category, msg, nullif(pg, ''));
+  values (v_user, case when private.is_guest(v_user) then null else private.username_of(v_user) end, p_category, msg, nullif(pg, ''));
   return jsonb_build_object('ok', true);
 end $$;
 
@@ -1058,7 +1107,7 @@ end $$;
 create or replace function private.game_activity(p_user uuid, p_game text, p_staked numeric, p_net numeric, p_detail text) returns void
 language sql volatile set search_path = '' as $$
   insert into public.activity (user_id, username, kind, game, amount, net, detail)
-  values (p_user, private.username_of(p_user), 'game', p_game, p_staked, p_net, p_detail)
+  values (p_user, private.feed_name(p_user), 'game', p_game, p_staked, p_net, p_detail)
 $$;
 
 -- ---------------------------------------------------------------------------
@@ -1495,7 +1544,9 @@ end $$;
 create or replace function private.leaderboard_rows() returns jsonb
 language sql stable set search_path = '' as $$
   with pf as (
+    -- Guests play but don't rank.
     select p.*, pr.username::text as username from public.portfolios p join public.profiles pr on pr.id = p.user_id
+    where not private.is_guest(p.user_id)
   ),
   pos as (
     select user_id, sum(private.position_value(p)) as value, sum(p.cost_basis) as cost, count(*) as open
@@ -1619,6 +1670,11 @@ begin
     perform 1 from public.portfolios where user_id = u for update;
     perform private.crash_settle(u);
   end loop;
+  -- Guests nobody has played as for 30 days (a day, if they never played) go, with all their data.
+  delete from auth.users u using public.portfolios p
+  where p.user_id = u.id and u.is_anonymous and u.created_at < now() - interval '1 day'
+    and p.updated_at < now() - case when p.trade_count = 0 and not exists (select 1 from public.game_rounds g where g.user_id = u.id)
+      then interval '1 day' else interval '30 days' end;
   for u in select user_id from public.portfolios loop
     perform private.snapshot(u);
     n := n + 1;
@@ -2426,6 +2482,7 @@ end $$;
 revoke execute on all functions in schema public from public, anon, authenticated;
 
 grant execute on function public.username_available(text) to anon, authenticated;
+grant execute on function public.claim_guest(text) to authenticated;
 grant execute on function public.reset_password_with_code(text, text, text) to anon, authenticated;
 grant execute on function public.leaderboard() to anon, authenticated;
 grant execute on function public.submit_feedback(text, text, text) to anon, authenticated;

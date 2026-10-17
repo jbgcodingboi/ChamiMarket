@@ -614,4 +614,52 @@ select pg_temp.ok((select detail from public.game_rounds where game = 'boneyard'
 select pg_temp.ok((select count(*) from public.game_rounds where game = 'dice') = (select count(*) from public.activity where game = 'dice'),
   'every dice round is in the feed');
 
+-- Guests ------------------------------------------------------------------------------
+reset role;
+insert into auth.users (email, is_anonymous) values (null, true), (null, true), (null, true);
+select id as guest from auth.users where is_anonymous order by created_at, id limit 1 \gset
+select id as guest2 from auth.users where is_anonymous and id <> :'guest' order by id limit 1 \gset
+select id as guest3 from auth.users where is_anonymous and id not in (:'guest', :'guest2') limit 1 \gset
+select pg_temp.ok((select username::text from public.profiles where id = :'guest') ~ '^guest-[0-9a-f]{12}$'
+  and (select cash from public.portfolios where user_id = :'guest') = 100000, 'guests get a placeholder name and $100,000');
+select pg_temp.ok(not public.username_available('guest_lover') and not public.username_available('Gue5t'), 'names starting with guest are reserved');
+set role authenticated;
+select set_config('request.jwt.claim.sub', :'guest', false);
+select pg_temp.clear_limits();
+do $$
+declare r jsonb;
+begin
+  r := public.play_dice(10, 50, true);
+  perform pg_temp.ok((select username from public.activity order by id desc limit 1) = 'Guest', 'a guest shows as Guest in the feed');
+  perform pg_temp.ok(not exists (select 1 from jsonb_array_elements(public.leaderboard()) x where x ->> 'id' = auth.uid()::text),
+    'guests are not on the leaderboard');
+  perform pg_temp.expect_error($q$select public.create_recovery_code()$q$, '%Sign up first%');
+  perform pg_temp.ok(public.submit_feedback('other', 'hello from a guest') ->> 'ok' = 'true', 'guests can send feedback');
+  perform pg_temp.ok(public.claim_guest('alice') ->> 'error' like '%taken%', 'a guest cannot take a used name');
+  perform pg_temp.ok(public.claim_guest('aIice') ->> 'error' like '%taken%', 'or a look-alike of one');
+  perform pg_temp.ok(public.claim_guest('x') ->> 'error' like '%3 to 20%', 'or a bad one');
+  perform pg_temp.ok(public.claim_guest('Lucky_Lou') ->> 'username' = 'Lucky_Lou', 'a guest claims a free name');
+  perform pg_temp.ok(public.claim_guest('Lucky_Lou') ->> 'username' = 'Lucky_Lou', 'claiming again (a retried sign-up) is fine');
+end $$;
+reset role;
+select pg_temp.ok((select username from public.feedback order by id desc limit 1) is null, 'guest feedback carries no username');
+-- Supabase then sets the login email and password on the same account.
+update auth.users set email = 'lucky_lou@users.chamimarket.app', is_anonymous = false where id = :'guest';
+select pg_temp.ok((select cash from public.portfolios where user_id = :'guest') <> 100000
+  and exists (select 1 from public.game_rounds where user_id = :'guest'), 'signing up keeps the guest balance and history');
+select pg_temp.ok(exists (select 1 from jsonb_array_elements(private.leaderboard_rows()) x where x ->> 'name' = 'Lucky_Lou'), 'the new player joins the leaderboard');
+set role authenticated;
+select set_config('request.jwt.claim.sub', :'guest', false);
+select pg_temp.ok(public.claim_guest('Other_Name') ->> 'error' like '%already has a username%', 'claiming is for guests only');
+reset role;
+-- A guest can't take someone else's login address without their name.
+select pg_temp.expect_error(format($q$update auth.users set email = 'alice@users.chamimarket.app', is_anonymous = false where id = %L$q$, :'guest2'), '%not available%');
+-- Idle guests are cleaned up by the sync job; ones still playing stay.
+update auth.users set created_at = now() - interval '3 days' where id in (:'guest2', :'guest3');
+update public.portfolios set updated_at = now() - interval '2 days' where user_id in (:'guest2', :'guest3');
+insert into public.game_rounds (user_id, run, game, staked, returned, net) values (:'guest3', 1, 'dice', 1, 0, -1);
+select public.sync_snapshots() \gset
+select pg_temp.ok(not exists (select 1 from auth.users where id = :'guest2') and exists (select 1 from auth.users where id = :'guest3'),
+  'a guest who never played is removed after a day, one who played is kept for 30');
+
 \echo 'all database tests passed'

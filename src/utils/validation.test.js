@@ -32,6 +32,11 @@ describe('auth validation', () => {
     expect(validateIdentifier('cryptooracle')).toMatch(/reserved/)
     expect(isReservedName('ChaminadeOfficial')).toBe(true)
     expect(isReservedName('site_admin')).toBe(true)
+    // Names that would pass for the Guest accounts in the feeds.
+    expect(isReservedName('Guest')).toBe(true)
+    expect(isReservedName('guest_lover')).toBe(true)
+    expect(isReservedName('Gue5t')).toBe(true)
+    expect(isReservedName('august')).toBe(false)
     expect(isReservedName('quietkeIIy')).toBe(true) // capital i for l
     expect(isReservedName('m0d')).toBe(true)
     expect(isReservedName('sim_1')).toBe(true)

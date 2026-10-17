@@ -142,6 +142,7 @@ function AuthForm({ mode, onModeChange, message, onSuccess }) {
   const pending = useRef(false)
   const ids = useId()
   const signup = mode === 'signup'
+  const guest = useAccountStore((s) => Boolean(s.user?.guest))
   // Signing up with an email also needs a username to show everyone; a username sign-up needs no email.
   const pickName = signup && isEmail(identifier.trim())
 
@@ -154,7 +155,11 @@ function AuthForm({ mode, onModeChange, message, onSuccess }) {
     try {
       if (signup) {
         const user = await signUp({ identifier, password, confirm, username: pickName ? username : undefined })
-        toast({ tone: 'success', title: `Welcome, ${user.username}`, description: 'You have $100,000.00 in play money to trade.' })
+        toast({
+          tone: 'success',
+          title: `Welcome, ${user.username}`,
+          description: guest ? 'Your guest balance, trades and games are saved to your new account.' : 'You have $100,000.00 in play money to trade.',
+        })
         if (BACKEND_ENABLED) {
           const code = await createRecoveryCode().catch(() => null)
           if (code) useUiStore.getState().showRecovery(code, 'signup')
@@ -194,6 +199,14 @@ function AuthForm({ mode, onModeChange, message, onSuccess }) {
         }}
         label="Account"
       />
+      {guest && (
+        <p className="flex items-center gap-2 rounded-lg bg-surface-2 px-3 py-2 text-sm text-muted" role="note">
+          <InfoIcon className="size-4 shrink-0" />
+          {signup
+            ? 'Your guest balance, trades and games come with you.'
+            : "Logging in switches to that account. This guest's progress stays behind, so sign up instead to keep it."}
+        </p>
+      )}
       {message && (
         <p className="flex items-center gap-2 rounded-lg bg-primary-500/15 px-3 py-2 text-sm text-primary-200">
           <InfoIcon className="size-4 shrink-0" />

@@ -48,7 +48,15 @@ export default function Header() {
           <span className="xl:hidden">
             <PaperBadge compact />
           </span>
-          {user ? (
+          {user?.guest ? (
+            // Guests: their balance menu (with Log in inside it) and a way to keep their progress.
+            <>
+              <UserMenu />
+              <button type="button" className="btn btn-primary px-3 whitespace-nowrap" onClick={() => openAuth('signup')}>
+                Sign up
+              </button>
+            </>
+          ) : user ? (
             <UserMenu />
           ) : (
             <>

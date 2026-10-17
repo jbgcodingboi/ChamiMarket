@@ -50,15 +50,55 @@ async function rpc(name, args) {
 
 // Accounts -------------------------------------------------------------------
 
-const toUser = (authUser, username) => ({
-  id: authUser.id,
-  username: username ?? authUser.user_metadata?.username ?? 'player',
-  kind: authUser.email?.endsWith(`@${USERNAME_EMAIL_DOMAIN}`) ? 'username' : 'email',
-})
+const toUser = (authUser, username) =>
+  authUser.is_anonymous
+    ? { id: authUser.id, username: 'Guest', kind: 'guest', guest: true }
+    : {
+        id: authUser.id,
+        username: username ?? authUser.user_metadata?.username ?? 'player',
+        kind: authUser.email?.endsWith(`@${USERNAME_EMAIL_DOMAIN}`) ? 'username' : 'email',
+      }
+
+const termsData = () => ({ terms_version: TERMS_VERSION, terms_accepted_at: new Date().toISOString() })
+
+/**
+ * Starts a guest: a Supabase anonymous account with its own $100,000, so
+ * people can play without signing up. Needs "Allow anonymous sign-ins" on in
+ * the Supabase dashboard; without it this fails and players log in as before.
+ */
+export async function signInAsGuest() {
+  const sb = await client()
+  const { data, error } = await sb.auth.signInAnonymously({ options: { data: termsData() } })
+  if (error || !data.user) throw new BackendError(friendly(error ?? 'Guest play is not available.'))
+  return toUser(data.user)
+}
+
+/**
+ * Turns the signed-in guest into a real account, keeping its balance,
+ * positions and history: the guest claims the username, then gets the login
+ * email and the password on the same account. Safe to retry after a failure.
+ */
+export async function convertGuest({ identifier, password, username }) {
+  const sb = await client()
+  const claim = await rpc('claim_guest', { p_username: username })
+  if (claim?.error) throw new BackendError(claim.error, identifier.includes('@') ? 'username' : 'identifier')
+  const email = loginEmail(identifier)
+  const { data: current } = await sb.auth.getUser()
+  if (current?.user?.email !== email) {
+    const { error } = await sb.auth.updateUser({ email, data: { username, ...termsData() } })
+    if (error) throw new BackendError(friendly(error), 'identifier')
+  }
+  const { data, error } = await sb.auth.updateUser({ password })
+  if (error) throw new BackendError(friendly(error), 'password')
+  if (data.user?.is_anonymous) {
+    throw new BackendError('Supabase is asking for email confirmation. Turn off "Confirm email" in the Supabase dashboard so guests can sign up right away.')
+  }
+  return toUser(data.user, username)
+}
 
 export async function signUp({ identifier, password, username }) {
   const sb = await client()
-  const { data, error } = await sb.auth.signUp({ email: loginEmail(identifier), password, options: { data: { username, terms_version: TERMS_VERSION, terms_accepted_at: new Date().toISOString() } } })
+  const { data, error } = await sb.auth.signUp({ email: loginEmail(identifier), password, options: { data: { username, ...termsData() } } })
   if (error) throw new BackendError(friendly(error), /password/i.test(error.message) ? 'password' : 'identifier')
   if (!data.session) {
     throw new BackendError('Your account was created, but Supabase is asking for email confirmation. Turn off "Confirm email" in the Supabase dashboard so players can log in right away.')
