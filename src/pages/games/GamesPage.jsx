@@ -181,7 +181,7 @@ const GAMES = [
   {
     to: '/games/limbo',
     id: 'limbo',
-    title: 'Limbo & Crash',
+    title: 'Limbo',
     blurb: 'Pick a target and hope the draw reaches it, or watch the multiplier climb and cash out before it crashes.',
     facts: ['Up to 1,000,000×', '99% return', 'Provably fair'],
     Art: LimboArt,
@@ -245,7 +245,7 @@ export default function GamesPage() {
         <div className="min-w-0">
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {GAMES.map(({ to, id, title, blurb, facts, Art }) => {
-              // The Limbo & Crash card counts both modes.
+              // The Limbo card counts both modes (Limbo and Crash).
               const s = id === 'limbo' && stats.crash ? addStats(stats.limbo, stats.crash) : stats[id]
               return (
                 <Link

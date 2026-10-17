@@ -22,7 +22,8 @@ const OFFICIAL = ['admin', 'moderator', 'official', 'chaminade', 'chamimarket'].
  */
 export const isReservedName = (name) => {
   const key = nameKey(name.trim())
-  return RESERVED.has(key) || OFFICIAL.some((w) => key.includes(w)) || /(^|[^a-z])sim([^a-z]|$)/i.test(name.trim())
+  // Names starting with guest would look like the Guest accounts in the feeds.
+  return RESERVED.has(key) || OFFICIAL.some((w) => key.includes(w)) || key.startsWith('guest') || /(^|[^a-z])sim([^a-z]|$)/i.test(name.trim())
 }
 
 /** A username's rules: 3 to 20 letters, numbers or underscores, and not reserved. */

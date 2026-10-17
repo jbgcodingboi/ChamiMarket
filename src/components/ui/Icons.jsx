@@ -83,6 +83,16 @@ export const LogOutIcon = (p) => (
     <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
   </Svg>
 )
+export const LogInIcon = (p) => (
+  <Svg {...p}>
+    <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3" />
+  </Svg>
+)
+export const UserPlusIcon = (p) => (
+  <Svg {...p}>
+    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM19 8v6M22 11h-6" />
+  </Svg>
+)
 export const InfoIcon = (p) => (
   <Svg {...p}>
     <circle cx="12" cy="12" r="10" />

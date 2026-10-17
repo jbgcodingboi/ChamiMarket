@@ -14,8 +14,10 @@ create table if not exists auth.users (
   encrypted_password text,
   raw_user_meta_data jsonb not null default '{}',
   created_at timestamptz not null default now(),
-  updated_at timestamptz
+  updated_at timestamptz,
+  is_anonymous boolean not null default false
 );
+alter table auth.users add column if not exists is_anonymous boolean not null default false;
 create table if not exists auth.sessions (id uuid primary key default gen_random_uuid(), user_id uuid);
 create or replace function auth.uid() returns uuid language sql stable as $$
   select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid

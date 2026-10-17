@@ -181,6 +181,13 @@ export default function AppEffects() {
     return () => stops.forEach((p) => Promise.resolve(p).then((stop) => stop?.()))
   }, [])
 
+  // Nobody signed in: play as a guest once the Terms are accepted (bots that never get past the pop-up don't make accounts).
+  const ready = useAccountStore((s) => s.ready)
+  const termsAccepted = useLegalStore((s) => s.accepted)
+  useEffect(() => {
+    if (ready && termsAccepted && !userId) useAccountStore.getState().ensureGuest()
+  }, [ready, termsAccepted, userId])
+
   usePolling(refreshMarkets, POLL_INTERVAL_MS)
 
   // Agreeing to the Terms in one tab closes the pop-up in the others.
