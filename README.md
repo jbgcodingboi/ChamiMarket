@@ -336,9 +336,32 @@ backend, otherwise it stays in local mode. Accounts made in local mode don't mov
 On Vercel or Netlify, set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` as environment variables instead (the
 sync job still runs on GitHub). For local development copy `.env.example` to `.env.local`.
 
+### Faster sync
+
+GitHub starts scheduled workflows late on busy days, sometimes hours late, which delays settlements. A run that is
+asked for through the API starts right away, so the database can ask for one every 5 minutes itself (pg_cron and
+pg_net; see the end of `supabase/schema.sql`). One-time setup:
+
+1. **Make a GitHub token** at GitHub > Settings > Developer settings > Personal access tokens > **Fine-grained
+   tokens** > Generate new token. Repository access: **Only select repositories**, pick this repository.
+   Permissions: **Actions: Read and write** (nothing else). Pick an expiration and note the date.
+2. **Turn on the extensions** in Supabase under **Database > Extensions**: **pg_cron** and **pg_net** (re-running the
+   schema tries to turn them on too).
+3. **Save the token in Vault**: in the SQL Editor run
+   `select vault.create_secret('github_pat_…', 'github_dispatch_token');` with your token. It is stored encrypted and
+   only the database can read it; it never goes into the site.
+4. **Run `supabase/schema.sql` again.** It schedules the `chami-sync` job.
+
+To check it: `select * from cron.job;` lists the job, and
+`select status_code, created from net._http_response order by created desc limit 5;` shows GitHub's answers (204
+means the run was started). When the token expires, make a new one and run
+`select vault.update_secret((select id from vault.secrets where name = 'github_dispatch_token'), 'github_pat_…');`.
+Without a token nothing breaks: the GitHub schedule keeps running the sync, just less punctually.
+
 ### How it fits together
 
-- **Prices and results**: `scripts/sync-backend.mjs` runs every 5 minutes (`.github/workflows/sync-backend.yml`).
+- **Prices and results**: `scripts/sync-backend.mjs` runs every 5 minutes (`.github/workflows/sync-backend.yml`,
+  started by the database once [Faster sync](#faster-sync) is set up, and by GitHub's own schedule as a backup).
   It builds the same curated Polymarket, Chaminade and Quick listings as the app, stores them in the `markets`
   table, checks every held market against its official source and settles winners for every player at once. The
   app lists Chaminade and Quick markets from that table, so the price a player sees is the price the server
