@@ -187,7 +187,7 @@ sampling, so outcomes are unbiased.
 - **Chicken Cross**: hop a chicken lane by lane across traffic. Easy survives 96% of lanes over 30 lanes, Medium 88%
   over 25, Hard 80% over 22 and Daredevil 60% over 18 (up to about 9,600×). Lane n pays 0.98 ÷ chanceⁿ, a 98% return.
   A tilted roadway with moving traffic, a multiplier on every lane's manhole, hop, cash-out and crash animations.
-- **Limbo & Crash**: one draw from 1.00× to 1,000,000× (`floor(2^24 × 99 ÷ (n + 1))` hundredths, where n is the
+- **Limbo** (with a Crash mode): one draw from 1.00× to 1,000,000× (`floor(2^24 × 99 ÷ (n + 1))` hundredths, where n is the
   first 3 bytes of the HMAC), so reaching x has a 99% ÷ x chance and every target returns 99%. **Limbo** pays your
   target times the bet when the draw reaches it. **Crash** draws the same number as the crash point and grows the
   multiplier as e^(0.00006 × ms) (2× after about 11.6 seconds): cash out before it crashes, or set an auto cash-out.
