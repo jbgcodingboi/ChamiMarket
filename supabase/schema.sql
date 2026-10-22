@@ -35,6 +35,9 @@ create table if not exists public.profiles (
   username extensions.citext not null unique check (username ~ '^[A-Za-z0-9_.+-]{1,20}$'),
   created_at timestamptz not null default now()
 );
+-- Guests' profiles are hidden from other players (see the "profiles are public" policy).
+alter table public.profiles add column if not exists is_guest boolean not null default false;
+update public.profiles p set is_guest = u.is_anonymous from auth.users u where u.id = p.id and p.is_guest is distinct from u.is_anonymous;
 
 create table if not exists public.portfolios (
   user_id uuid primary key references public.profiles (id) on delete cascade,
@@ -274,7 +277,8 @@ exception when undefined_object then null;
 end $$;
 
 drop policy if exists "profiles are public" on public.profiles;
-create policy "profiles are public" on public.profiles for select using (true);
+-- Everyone's but guests': a name a guest picks while signing up stays private until the sign-up finishes.
+create policy "profiles are public" on public.profiles for select using (not is_guest or id = auth.uid());
 drop policy if exists "own portfolio" on public.portfolios;
 create policy "own portfolio" on public.portfolios for select to authenticated using (user_id = auth.uid());
 drop policy if exists "own positions" on public.positions;
@@ -733,7 +737,7 @@ begin
       raise exception 'That username is not available.';
     end if;
   end if;
-  insert into public.profiles (id, username) values (new.id, v_name);
+  insert into public.profiles (id, username, is_guest) values (new.id, v_name, coalesce(new.is_anonymous, false));
   insert into public.portfolios (user_id, cash, run_start_cash) values (new.id, 100000, 100000);
   insert into public.equity_snapshots (user_id, equity) values (new.id, 100000);
   return new;
@@ -751,6 +755,18 @@ begin
   end if;
   return new;
 end $$;
+
+/** A guest who finishes signing up becomes a regular, visible profile. */
+create or replace function private.sync_guest_flag() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  update public.profiles set is_guest = coalesce(new.is_anonymous, false) where id = new.id;
+  return new;
+end $$;
+
+drop trigger if exists on_auth_user_guest on auth.users;
+create trigger on_auth_user_guest after update of is_anonymous on auth.users for each row
+  when (old.is_anonymous is distinct from new.is_anonymous) execute function private.sync_guest_flag();
 
 drop trigger if exists on_auth_user_email on auth.users;
 create trigger on_auth_user_email before update of email on auth.users for each row

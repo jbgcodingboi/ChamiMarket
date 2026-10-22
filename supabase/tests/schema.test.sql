@@ -643,7 +643,12 @@ begin
   perform pg_temp.ok(public.claim_guest('x') ->> 'error' like '%3 to 20%', 'or a bad one');
   perform pg_temp.ok(public.claim_guest('Lucky_Lou') ->> 'username' = 'Lucky_Lou', 'a guest claims a free name');
   perform pg_temp.ok(public.claim_guest('Lucky_Lou') ->> 'username' = 'Lucky_Lou', 'claiming again (a retried sign-up) is fine');
+  perform pg_temp.ok((select username::text from public.profiles where id = auth.uid()) = 'Lucky_Lou', 'a guest sees their own profile');
 end $$;
+select set_config('request.jwt.claim.sub', '', false);
+set role anon;
+select pg_temp.ok(not exists (select 1 from public.profiles where username = 'Lucky_Lou')
+  and exists (select 1 from public.profiles where username = 'alice'), 'other players cannot see a guest profile or the name it picked');
 reset role;
 select pg_temp.ok((select username from public.feedback order by id desc limit 1) is null, 'guest feedback carries no username');
 -- Supabase then sets the login email and password on the same account.
@@ -651,6 +656,9 @@ update auth.users set email = 'lucky_lou@users.chamimarket.app', is_anonymous = 
 select pg_temp.ok((select cash from public.portfolios where user_id = :'guest') <> 100000
   and exists (select 1 from public.game_rounds where user_id = :'guest'), 'signing up keeps the guest balance and history');
 select pg_temp.ok(exists (select 1 from jsonb_array_elements(private.leaderboard_rows()) x where x ->> 'name' = 'Lucky_Lou'), 'the new player joins the leaderboard');
+set role anon;
+select pg_temp.ok(exists (select 1 from public.profiles where username = 'Lucky_Lou'), 'once signed up the profile is public');
+reset role;
 set role authenticated;
 select set_config('request.jwt.claim.sub', :'guest', false);
 select pg_temp.ok(public.claim_guest('Other_Name') ->> 'error' like '%already has a username%', 'claiming is for guests only');
