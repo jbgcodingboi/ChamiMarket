@@ -8,5 +8,7 @@ export const GAME_NAME = {
   chicken: 'Chicken Cross',
   limbo: 'Limbo',
   crash: 'Crash',
+  // Retired; past rounds keep their name.
   boneyard: 'Boneyard',
+  slots: 'Golden Sevens',
 }

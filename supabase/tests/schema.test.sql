@@ -412,7 +412,7 @@ select pg_temp.ok((select (r ->> 'netWorth')::numeric from jsonb_array_elements(
 
 -- Reset ---------------------------------------------------------------------
 select pg_temp.ok((public.reset_balance() ->> 'cash')::numeric = 50000, 'reset starts a $50,000 run');
-select pg_temp.expect_error($$select public.reset_balance()$$, '%once every 24 hours%');
+select pg_temp.expect_error($$select public.reset_balance()$$, '%reset again in 5 minutes%');
 select pg_temp.ok((public.get_portfolio() ->> 'run')::int = 2 and public.get_portfolio() -> 'positions' = '{}', 'reset clears positions and bumps the run');
 select pg_temp.ok((public.get_portfolio() -> 'games' ->> 'runRounds')::int = 0, 'game totals restart with the run');
 
@@ -506,13 +506,15 @@ select pg_temp.ok(jsonb_array_length(public.leaderboard()) = :players_before - 1
 select pg_temp.ok(exists (select 1 from public.portfolios where user_id = :'alice'), 'other players are untouched');
 select pg_temp.ok(public.username_available('bob'), 'the username is free again');
 
--- Limbo, Crash and Boneyard -----------------------------------------------------------
+-- Limbo, Crash and Golden Sevens ------------------------------------------------------
 reset role;
 select pg_temp.ok((select array_agg(private.limbo_cents((private.fair_floats(repeat('b', 64), 'chami', n, 1))[1]) order by n)
   from generate_series(0, 5) n) = array[104, 118, 398, 233, 207, 206]::bigint[], 'limbo results match the browser engine');
-select pg_temp.ok((select jsonb_object_agg(n, (private.by_round(private.fair_floats(repeat('b', 64), 'chami', n, 242)) ->> 'units')::bigint)
-  from unnest(array[1, 7, 14, 45, 915, 17181]) n) = '{"1": 0, "7": 160, "14": 9600, "45": 4872, "915": 2314, "17181": 88000}',
-  'boneyard rounds (free spins included) match the browser engine');
+select pg_temp.ok((select jsonb_object_agg(n, (private.slot_round(private.fair_floats(repeat('b', 64), 'chami', n, 744)) ->> 'units')::bigint)
+  from unnest(array[0, 1, 15, 45, 424, 17392]) n) = '{"0": 30, "1": 0, "15": 470, "45": 635, "424": 7670, "17392": 123545}',
+  'slot rounds (free spins and retriggers included) match the browser engine');
+select pg_temp.ok((select (r ->> 'freeSpins')::int = 25 and jsonb_array_length(r -> 'spins') = 26
+  from private.slot_round(private.fair_floats(repeat('b', 64), 'chami', 424, 744)) r), 'free spins retrigger (nonce 424: 25 free spins)');
 -- A client seed whose first round crashes at 1.00×.
 select 'c' || n as crash_at_one from generate_series(0, 5000) n
   where private.limbo_cents((private.fair_floats(repeat('b', 64), 'c' || n, 0, 1))[1]) = 100 limit 1 \gset
@@ -592,24 +594,25 @@ begin
   r := public.mines_reveal(0);
   if r -> 'round' ->> 'phase' = 'playing' then r := public.mines_cashout(); end if;
 
-  -- Boneyard: nonce 14 pays 96× (a Nudge Wild and a Split Wild), nonce 1 is an R.I.P. spin.
-  perform pg_temp.seeds_at(me, 14);
-  r := public.play_boneyard(1);
-  perform pg_temp.ok((r ->> 'payout')::numeric = 96 and (r -> 'round' ->> 'units')::int = 9600, 'boneyard pays 96× on nonce 14');
+  -- Golden Sevens: nonce 15 hits a 10x wild and 45 starts 10 free spins.
+  perform pg_temp.seeds_at(me, 15);
+  r := public.play_slots(1);
+  perform pg_temp.ok((r ->> 'payout')::numeric = 4.7 and (r -> 'round' ->> 'units')::int = 470, 'slots pay 4.70x on nonce 15');
   perform pg_temp.seeds_at(me, 1);
-  r := public.play_boneyard(2);
-  perform pg_temp.ok((r ->> 'payout')::numeric = 0 and (r -> 'round' -> 'spins' -> 0 ->> 'rip')::boolean, 'a win under the bet is R.I.P.');
+  r := public.play_slots(2);
+  perform pg_temp.ok((r ->> 'payout')::numeric = 0, 'a losing spin pays nothing');
   perform pg_temp.seeds_at(me, 45);
-  r := public.play_boneyard(0.5);
-  perform pg_temp.ok(r -> 'round' ->> 'bonus' = 'high-noon' and jsonb_array_length(r -> 'round' -> 'spins') = 9 and (r ->> 'payout')::numeric = 24.36,
-    'High Noon plays 8 free spins in the same round');
-  perform pg_temp.expect_error($q$select public.play_boneyard(0.05)$q$, '%at least $0.10%');
+  r := public.play_slots(0.5);
+  perform pg_temp.ok((r -> 'round' ->> 'freeSpins')::int = 10 and jsonb_array_length(r -> 'round' -> 'spins') = 11 and (r ->> 'payout')::numeric = 3.17,
+    '3 stars play 10 free spins in the same round (payout rounded down)');
+  perform pg_temp.expect_error($q$select public.play_slots(0.05)$q$, '%at least $0.10%');
+  perform pg_temp.expect_error($q$select public.play_boneyard(1)$q$, '%does not exist%');
 end $$;
 
 reset role;
-select pg_temp.ok((select count(*) from public.activity where kind = 'game' and game in ('limbo', 'crash', 'boneyard')) >= 10
-  and exists (select 1 from public.activity where game = 'boneyard' and detail like '%R.I.P.%'), 'every round of the new games is in the feed');
-select pg_temp.ok((select detail from public.game_rounds where game = 'boneyard' order by id desc limit 1) like 'High Noon free spins%', 'boneyard rounds name their bonus');
+select pg_temp.ok((select count(*) from public.activity where kind = 'game' and game in ('limbo', 'crash', 'slots')) >= 10
+  and exists (select 1 from public.activity where game = 'slots' and detail like '%free spins%'), 'every round of the new games is in the feed');
+select pg_temp.ok((select detail from public.game_rounds where game = 'slots' and detail like '10 free spins%' limit 1) is not null, 'slot rounds note their free spins');
 -- Every dice roll goes to the feed now, not just big wins.
 select pg_temp.ok((select count(*) from public.game_rounds where game = 'dice') = (select count(*) from public.activity where game = 'dice'),
   'every dice round is in the feed');
@@ -640,7 +643,12 @@ begin
   perform pg_temp.ok(public.claim_guest('x') ->> 'error' like '%3 to 20%', 'or a bad one');
   perform pg_temp.ok(public.claim_guest('Lucky_Lou') ->> 'username' = 'Lucky_Lou', 'a guest claims a free name');
   perform pg_temp.ok(public.claim_guest('Lucky_Lou') ->> 'username' = 'Lucky_Lou', 'claiming again (a retried sign-up) is fine');
+  perform pg_temp.ok((select username::text from public.profiles where id = auth.uid()) = 'Lucky_Lou', 'a guest sees their own profile');
 end $$;
+select set_config('request.jwt.claim.sub', '', false);
+set role anon;
+select pg_temp.ok(not exists (select 1 from public.profiles where username = 'Lucky_Lou')
+  and exists (select 1 from public.profiles where username = 'alice'), 'other players cannot see a guest profile or the name it picked');
 reset role;
 select pg_temp.ok((select username from public.feedback order by id desc limit 1) is null, 'guest feedback carries no username');
 -- Supabase then sets the login email and password on the same account.
@@ -648,6 +656,9 @@ update auth.users set email = 'lucky_lou@users.chamimarket.app', is_anonymous = 
 select pg_temp.ok((select cash from public.portfolios where user_id = :'guest') <> 100000
   and exists (select 1 from public.game_rounds where user_id = :'guest'), 'signing up keeps the guest balance and history');
 select pg_temp.ok(exists (select 1 from jsonb_array_elements(private.leaderboard_rows()) x where x ->> 'name' = 'Lucky_Lou'), 'the new player joins the leaderboard');
+set role anon;
+select pg_temp.ok(exists (select 1 from public.profiles where username = 'Lucky_Lou'), 'once signed up the profile is public');
+reset role;
 set role authenticated;
 select set_config('request.jwt.claim.sub', :'guest', false);
 select pg_temp.ok(public.claim_guest('Other_Name') ->> 'error' like '%already has a username%', 'claiming is for guests only');

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import * as B from './boneyard.js'
 import { fairFloats } from './fair.js'
 import * as limbo from './limbo.js'
+import * as S from './slots.js'
 
 const SEEDS = { serverSeed: 'b'.repeat(64), clientSeed: 'chami' }
 const K = 16777216 * 99
@@ -41,74 +41,54 @@ describe('limbo and crash', () => {
 
 /** Floats that land a given symbol in a cell. */
 const at = (table, sym) => (table.weights.slice(0, table.symbols.indexOf(sym)).reduce((a, b) => a + b, 0) + 0.5) / table.total
-const NO_NUDGE = 0.9
-/** One base spin's floats from symbol names: reel 1 (2), reels 2-4 (3 each, or a nudge), reel 5, split row. */
-function floatsFor({ r1, mid, r5, nudges = {}, splitRow = 0 }) {
-  const f = new Array(B.FLOAT_COUNT).fill(0.99)
-  f[0] = at(B.REEL_1, r1[0])
-  f[1] = at(B.REEL_1, r1[1])
-  for (let r = 1; r <= 3; r++) {
-    const o = 2 + (r - 1) * 5
-    if (nudges[r]) {
-      f[o] = 0
-      f[o + 1] = (nudges[r] - 1 + 0.5) / 3
-    } else {
-      f[o] = NO_NUDGE
-      for (let c = 0; c < 3; c++) f[o + 2 + c] = at(B.REEL_MID, mid[r - 1][c])
-    }
-  }
-  f[17] = at(B.REEL_5, r5)
-  f[18] = (splitRow + 0.5) / 3
+/** One spin's floats from a 5x3 grid (grid[reel][row]) and optional wild multipliers. */
+function floatsFor(grid, mults = {}) {
+  const f = new Array(S.FLOAT_COUNT).fill(0.5)
+  grid.forEach((col, r) => col.forEach((sym, row) => {
+    f[r * 3 + row] = at(r === 0 || r === 4 ? S.OUTER : S.MIDDLE, sym)
+    if (sym === 'wild') f[15 + (r - 1) * 3 + row] = at(S.WILD_MULT, mults[`${r}${row}`] ?? 2)
+  }))
   return f
 }
+const filler = ['lemon', 'orange', 'cherry']
 
-describe('boneyard', () => {
-  it('pays ways left to right', () => {
-    const f = floatsFor({ r1: ['sheriff', 'jack'], mid: [['sheriff', 'sheriff', 'jack'], ['sheriff', 'queen', 'king'], ['ace', 'ace', 'ace']], r5: 'ace' })
-    const s = B.spin(f, 0, 'base')
-    // Sheriff: 1 × 2 × 1 ways on reels 1-3 at 0.25× each.
-    expect(s.wins).toEqual([{ symbol: 'sheriff', count: 3, ways: 2, mult: 1, units: 50 }])
-    // 0.5× is under the bet, so the R.I.P. rule takes it.
-    expect(s.rip).toBe(true)
-    expect(s.units).toBe(0)
+describe('golden sevens slot', () => {
+  it('pays a line left to right in line bets', () => {
+    // Bells across the middle row (line 1), nothing else lines up.
+    const grid = [['lemon', 'bell', 'cherry'], ['orange', 'bell', 'plum'], ['cherry', 'bell', 'lemon'], ['plum', 'orange', 'bar'], ['bar', 'lemon', 'orange']]
+    const s = S.spin(floatsFor(grid), 0)
+    const bell = s.wins.find((w) => w.symbol === 'bell')
+    expect(bell).toEqual({ line: 0, symbol: 'bell', count: 3, mult: 1, units: 6 * 5 })
   })
-  it('adds Nudge Wild multipliers and doubles them on a split', () => {
-    const plain = floatsFor({ r1: ['outlaw', 'jack'], mid: [[], ['outlaw', 'king', 'king'], []], nudges: { 1: 2, 3: 1 }, r5: 'queen' })
-    const s = B.spin(plain, 0, 'base')
-    // Reel 2 nudged 1 step (2×), reel 4 nudged 2 steps (3×): 5× on the outlaw ways.
-    const outlaw = s.wins.find((w) => w.symbol === 'outlaw')
-    expect(s.nudges[1]).toEqual({ visible: 2, steps: 1, mult: 2 })
-    expect(outlaw).toEqual({ symbol: 'outlaw', count: 4, ways: 9, mult: 5, units: 60 * 9 * 5 })
-    const split = B.spin(floatsFor({ r1: ['outlaw', 'jack'], mid: [[], ['outlaw', 'king', 'king'], []], nudges: { 1: 2, 3: 1 }, r5: 'split', splitRow: 0 }), 0, 'base')
-    const w = split.wins.find((x) => x.symbol === 'outlaw')
-    // Row 0 split: outlaw on reel 1 and 3 count 2, nudge reels count 4 and double, reel 5 Split Wild counts 2.
-    expect(split.splitRow).toBe(0)
-    expect(w).toEqual({ symbol: 'outlaw', count: 5, ways: 2 * 4 * 2 * 4 * 2, mult: 10, units: 175 * 128 * 10 })
+  it('multiplies wilds on a line together', () => {
+    const grid = [['diamond', 'lemon', 'cherry'], ['wild', 'orange', 'plum'], ['wild', 'cherry', 'lemon'], ['wild', 'plum', 'orange'], ['diamond', 'orange', 'lemon']]
+    const s = S.spin(floatsFor(grid, { 10: 10, 20: 10, 30: 10 }), 0)
+    const top = s.wins.find((w) => w.line === 1)
+    // 5 diamonds on the top line: 3000 line bets, times 10 x 10 x 10 = 150,000x the bet before the cap.
+    expect(top).toEqual({ line: 1, symbol: 'diamond', count: 5, mult: 1000, units: 3000 * 5 * 1000 })
+    expect(S.playRound(floatsFor(grid, { 10: 10, 20: 10, 30: 10 })).units).toBe(S.CAP_X * 100)
   })
-  it('starts High Noon on 3 scatters and Last Rites with a coffin', () => {
-    const mid = [['scatter', 'jack', 'king'], ['scatter', 'queen', 'king'], ['ace', 'ace', 'ace']]
-    expect(B.spin(floatsFor({ r1: ['scatter', 'jack'], mid, r5: 'queen' }), 0, 'base').bonus).toBe('high-noon')
-    expect(B.spin(floatsFor({ r1: ['scatter', 'jack'], mid, r5: 'coffin' }), 0, 'base').bonus).toBe('last-rites')
-    expect(B.spin(floatsFor({ r1: ['jack', 'jack'], mid, r5: 'coffin' }), 0, 'base').bonus).toBe(null)
+  it('pays scatters anywhere and starts free spins that pay triple', () => {
+    const grid = [['scatter', 'lemon', 'cherry'], ['orange', 'scatter', 'plum'], ['cherry', 'lemon', 'scatter'], filler, filler]
+    const base = S.spin(floatsFor(grid), 0)
+    expect(base.scatters).toBe(3)
+    expect(base.scatterUnits).toBe(200)
+    expect(base.freeSpins).toBe(10)
+    const free = S.spin(floatsFor(grid), 0, true)
+    expect(free.units).toBe(base.units * 3)
   })
-  it('keeps the free spins multiplier growing and turns the Last Rites character wild', () => {
-    const f = floatsFor({ r1: ['jack', 'jack'], mid: [['wild', 'king', 'king'], ['wild', 'wild', 'queen'], ['ace', 'ace', 'ace']], r5: 'queen' })
-    expect(B.spin(f, 0, 'high-noon', 4).global).toBe(7)
-    f[19] = 0.1 // gambler turns wild
-    const s = B.spin(f, 0, 'last-rites', 1)
-    expect(s.cowboy).toBe('gambler')
-    expect(s.reels[4]).toEqual(['gambler'])
-    expect(s.random.symbol).not.toBe('gambler')
-    expect(s.wins.some((w) => w.symbol === 'gambler')).toBe(false)
-  })
-  it('stops a round at 300,000×', () => {
-    const f = new Array(B.FLOAT_COUNT).fill(0)
-    const r = B.playRound(f)
-    expect(r.units).toBeLessThanOrEqual(30000000)
+  it('never gives more than 30 free spins in a round', () => {
+    const grid = [['scatter', 'scatter', 'scatter'], ['scatter', 'lemon', 'plum'], ['cherry', 'scatter', 'lemon'], filler, filler]
+    const one = floatsFor(grid)
+    const f = []
+    for (let i = 0; i <= S.MAX_FREE_SPINS; i++) f.push(...one.slice(0, S.FLOATS_PER_SPIN))
+    const r = S.playRound(f)
+    expect(r.freeSpins).toBe(S.MAX_FREE_SPINS)
+    expect(r.spins.length).toBe(1 + S.MAX_FREE_SPINS)
   })
   it('matches the server for known seeds (see supabase/tests)', async () => {
     const units = {}
-    for (const nonce of [1, 7, 14, 45, 915, 17181]) units[nonce] = B.playRound(await fairFloats({ ...SEEDS, nonce }, B.FLOAT_COUNT)).units
-    expect(units).toEqual({ 1: 0, 7: 160, 14: 9600, 45: 4872, 915: 2314, 17181: 88000 })
+    for (const nonce of [0, 1, 15, 45, 424, 17392]) units[nonce] = S.playRound(await fairFloats({ ...SEEDS, nonce }, S.FLOAT_COUNT)).units
+    expect(units).toEqual({ 0: 30, 1: 0, 15: 470, 45: 635, 424: 7670, 17392: 123545 })
   })
 })

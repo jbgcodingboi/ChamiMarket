@@ -217,6 +217,22 @@ describe('games and the portfolio', () => {
     expect(cash()).toBe(reset.cash)
     expect(gamesOf(useAccountStore.getState().portfolio).pending).toHaveLength(0)
   })
+  it('holds an auto round payout until the page has shown it', async () => {
+    const { chickenApi, minesApi } = await import('../services/games/rounds.js')
+    useAccountStore.setState({ user: { id: 'u_test', username: 'tester' }, portfolio: createPortfolio() })
+    for (const play of [() => minesApi.auto({ amount: 10, mines: 3, tiles: [0, 1, 2] }), () => chickenApi.auto({ amount: 10, difficulty: 'easy', target: 3 })]) {
+      const start = cash()
+      const r = await play()
+      const before = cash()
+      expect(before).toBe(start - 10)
+      const held = gamesOf(useAccountStore.getState().portfolio).pending
+      expect(held).toHaveLength(1)
+      expect(held[0]).toMatchObject({ staked: 10, returned: r.result.payout })
+      expect(finish(r.holdId).net).toBe(Math.round((r.result.payout - 10) * 100) / 100)
+      expect(cash()).toBe(Math.round((before + r.result.payout) * 100) / 100)
+    }
+    expect(gamesOf(useAccountStore.getState().portfolio).pending).toHaveLength(0)
+  })
   it('needs an account', () => {
     useAccountStore.setState({ user: null, portfolio: null })
     expect(debit(10)).toBeNull()

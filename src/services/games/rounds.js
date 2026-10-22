@@ -7,7 +7,7 @@
 import * as chicken from '../../games/chicken.js'
 import * as mines from '../../games/mines.js'
 import { useAccountStore } from '../../store/accountStore.js'
-import { debit, settle } from '../../store/gameStore.js'
+import { debit, hold, holdServerPortfolio, place, settle } from '../../store/gameStore.js'
 import { roundMoney } from '../../utils/math.js'
 import { isPlainObject, readJSON, writeJSON } from '../../utils/storage.js'
 import * as backend from '../backend/api.js'
@@ -15,12 +15,28 @@ import { BACKEND_ENABLED } from '../backend/config.js'
 import { crashInPlay, nextFloats, roundKey, useFairStore } from './fairSeeds.js'
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
+/** Bet x multiplier, rounded down to the cent and capped like the server's payouts (both are whole cents). */
+const payOf = (bet, mult) => Math.min(1e12, Math.floor((Math.round(bet * 100) * Math.round(mult * 100)) / 100) / 100)
 
 async function remote(call) {
   const res = await call()
   useAccountStore.getState().adoptRemote(res.portfolio)
   if (res.round?.nonce !== undefined) useFairStore.getState().used(res.round.nonce)
   return res.round
+}
+
+/**
+ * An auto round arrives finished, so its payout is held (see gameStore place
+ * and hold) until the page has animated it and calls finish(round.holdId).
+ * The server's portfolio replaces the held one once nothing is in flight.
+ */
+async function remoteHeld(game, amount, detail, call) {
+  const res = await call()
+  const round = res.round
+  if (round?.nonce !== undefined) useFairStore.getState().used(round.nonce)
+  const holdId = round?.result ? place({ game, staked: amount, returned: round.result.payout, detail: detail(round) }) : null
+  holdServerPortfolio(res.portfolio)
+  return { ...round, holdId }
 }
 
 const isTileList = (v) => Array.isArray(v) && v.every((t) => Number.isInteger(t) && t >= 0 && t <= 24)
@@ -61,24 +77,27 @@ export function minesView(s) {
     gems,
     multiplier: mines.multiplier(s.mines, gems),
     nextMultiplier: gems < mines.maxGems(s.mines) ? mines.multiplier(s.mines, gems + 1) : null,
-    payout: roundMoney(s.bet * mines.multiplier(s.mines, gems)),
+    payout: payOf(s.bet, mines.multiplier(s.mines, gems)),
     nonce: s.nonce,
     result: s.phase === 'done' ? { ...s.result, positions: s.positions } : null,
   }
 }
 
-function minesFinish(s, win, hit) {
+const minesDetail = ({ result, mines: count, revealed }) =>
+  result.win
+    ? `${plural(revealed.length, 'gem')} · ${plural(count, 'mine')} (${result.multiplier}×)`
+    : `Mine on pick ${revealed.length + 1} · ${plural(count, 'mine')}`
+
+/** Ends a round and pays it out, or with `held` queues the payout for finish(). */
+function minesFinish(s, win, hit, held = false) {
   const gems = s.revealed.length
   const mult = win ? mines.multiplier(s.mines, gems) : 0
-  const payout = roundMoney(s.bet * mult)
-  settle({
-    run: s.run,
-    game: 'mines',
-    staked: s.bet,
-    returned: payout,
-    detail: win ? `${plural(gems, 'gem')} · ${plural(s.mines, 'mine')} (${mult}×)` : `Mine on pick ${gems + 1} · ${plural(s.mines, 'mine')}`,
-  })
-  return { ...s, phase: 'done', result: { win, hit, multiplier: mult, payout } }
+  const payout = payOf(s.bet, mult)
+  const done = { ...s, phase: 'done', result: { win, hit, multiplier: mult, payout } }
+  const bet = { run: s.run, game: 'mines', staked: s.bet, returned: payout, detail: minesDetail(done) }
+  if (held) return { ...done, holdId: hold(bet) }
+  settle(bet)
+  return done
 }
 
 function minesPick(s, tile) {
@@ -126,18 +145,22 @@ export const minesApi = {
   },
   /** Opens the tiles in order and cashes out if they are all safe. */
   async auto({ amount, mines: count, tiles }) {
-    if (BACKEND_ENABLED) return remote(() => backend.minesAuto({ amount, mines: count, tiles }))
+    if (BACKEND_ENABLED) return remoteHeld('mines', amount, minesDetail, () => backend.minesAuto({ amount, mines: count, tiles }))
     if (!tiles.length || tiles.length > 25 - count || new Set(tiles).size !== tiles.length || !isTileList(tiles)) {
       throw new Error(`Pick between 1 and ${25 - count} different tiles from 0 to 24.`)
     }
     let s = await minesBegin(amount, count)
     for (const t of tiles) {
-      s = minesPick(s, t)
-      if (s.phase === 'done') break
+      if (s.positions.includes(t)) {
+        s = minesFinish(s, false, t, true)
+        break
+      }
+      s = { ...s, revealed: [...s.revealed, t] }
     }
-    if (s.phase === 'playing') s = minesFinish(s, true, null)
-    save('mines', s)
-    return minesView(s)
+    if (s.phase === 'playing') s = minesFinish(s, true, null, true)
+    const { holdId, ...stored } = s
+    save('mines', stored)
+    return { ...minesView(stored), holdId }
   },
 }
 
@@ -154,31 +177,33 @@ export function chickenView(s) {
     lanes,
     multiplier: chicken.multiplier(s.difficulty, s.lane),
     nextMultiplier: s.lane < lanes ? chicken.multiplier(s.difficulty, s.lane + 1) : null,
-    payout: roundMoney(s.bet * chicken.multiplier(s.difficulty, s.lane)),
+    payout: payOf(s.bet, chicken.multiplier(s.difficulty, s.lane)),
     nonce: s.nonce,
     result: s.phase === 'done' ? s.result : null,
   }
 }
 
-function chickenFinish(s, win) {
-  const mult = win ? chicken.multiplier(s.difficulty, s.lane) : 0
-  const payout = roundMoney(s.bet * mult)
-  const label = chicken.DIFFICULTIES[s.difficulty].label
-  settle({
-    run: s.run,
-    game: 'chicken',
-    staked: s.bet,
-    returned: payout,
-    detail: win ? `Lane ${s.lane} · ${label} (${mult}×)` : `Hit on lane ${s.lane + 1} · ${label}`,
-  })
-  return { ...s, phase: 'done', result: { win, lane: s.lane, hitLane: win ? null : s.lane + 1, multiplier: mult, payout, crashLane: s.crash } }
+const chickenDetail = ({ result, lane, difficulty }) => {
+  const label = chicken.DIFFICULTIES[difficulty]?.label ?? difficulty
+  return result.win ? `Lane ${lane} · ${label} (${result.multiplier}×)` : `Hit on lane ${lane + 1} · ${label}`
 }
 
-function chickenHop(s) {
+/** Ends a round and pays it out, or with `held` queues the payout for finish(). */
+function chickenFinish(s, win, held = false) {
+  const mult = win ? chicken.multiplier(s.difficulty, s.lane) : 0
+  const payout = payOf(s.bet, mult)
+  const done = { ...s, phase: 'done', result: { win, lane: s.lane, hitLane: win ? null : s.lane + 1, multiplier: mult, payout, crashLane: s.crash } }
+  const bet = { run: s.run, game: 'chicken', staked: s.bet, returned: payout, detail: chickenDetail(done) }
+  if (held) return { ...done, holdId: hold(bet) }
+  settle(bet)
+  return done
+}
+
+function chickenHop(s, held = false) {
   const next = s.lane + 1
-  if (s.crash === next) return chickenFinish(s, false)
+  if (s.crash === next) return chickenFinish(s, false, held)
   const moved = { ...s, lane: next }
-  return next >= chicken.DIFFICULTIES[s.difficulty].lanes ? chickenFinish(moved, true) : moved
+  return next >= chicken.DIFFICULTIES[s.difficulty].lanes ? chickenFinish(moved, true, held) : moved
 }
 
 async function chickenBegin(amount, difficulty) {
@@ -218,11 +243,12 @@ export const chickenApi = {
   },
   /** Hops to the target lane and cashes out there, unless hit first. */
   async auto({ amount, difficulty, target }) {
-    if (BACKEND_ENABLED) return remote(() => backend.chickenAuto({ amount, difficulty, target }))
+    if (BACKEND_ENABLED) return remoteHeld('chicken', amount, chickenDetail, () => backend.chickenAuto({ amount, difficulty, target }))
     let s = await chickenBegin(amount, difficulty)
-    while (s.phase === 'playing' && s.lane < target) s = chickenHop(s)
-    if (s.phase === 'playing') s = chickenFinish(s, true)
-    save('chicken', s)
-    return chickenView(s)
+    while (s.phase === 'playing' && s.lane < target) s = chickenHop(s, true)
+    if (s.phase === 'playing') s = chickenFinish(s, true, true)
+    const { holdId, ...stored } = s
+    save('chicken', stored)
+    return { ...chickenView(stored), holdId }
   },
 }

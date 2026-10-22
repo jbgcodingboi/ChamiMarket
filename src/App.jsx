@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react'
-import { HashRouter, Route, Routes, useLocation } from 'react-router-dom'
+import { HashRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import AppEffects from './AppEffects.jsx'
 import AuthModal from './components/AuthModal.jsx'
 import Footer from './components/layout/Footer.jsx'
@@ -27,7 +27,7 @@ const DicePage = lazy(() => import('./pages/games/DicePage.jsx'))
 const MinesPage = lazy(() => import('./pages/games/MinesPage.jsx'))
 const ChickenPage = lazy(() => import('./pages/games/ChickenPage.jsx'))
 const LimboPage = lazy(() => import('./pages/games/LimboPage.jsx'))
-const BoneyardPage = lazy(() => import('./pages/games/BoneyardPage.jsx'))
+const SlotsPage = lazy(() => import('./pages/games/SlotsPage.jsx'))
 const TermsPage = lazy(() => import('./pages/TermsPage.jsx'))
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage.jsx'))
 
@@ -50,7 +50,9 @@ function AppRoutes() {
           <Route path="/games/chicken" element={<ChickenPage />} />
           <Route path="/games/limbo" element={<LimboPage key="limbo" />} />
           <Route path="/games/crash" element={<LimboPage key="crash" crash />} />
-          <Route path="/games/boneyard" element={<BoneyardPage />} />
+          <Route path="/games/slots" element={<SlotsPage />} />
+          {/* Boneyard was replaced by Golden Sevens; old links land there. */}
+          <Route path="/games/boneyard" element={<Navigate to="/games/slots" replace />} />
           <Route path="/terms" element={<TermsPage />} />
           <Route path="*" element={<NotFoundPage />} />
         </Routes>

@@ -1,18 +1,27 @@
 import { useEffect, useRef, useState } from 'react'
+import BetAmount from '../../components/games/BetAmount.jsx'
 import GameShell from '../../components/games/GameShell.jsx'
+import { useSpaceToPlay } from '../../components/games/limbo/fx.js'
+import { Confetti, HistoryStrip, WinPop } from '../../components/games/limbo/GameFx.jsx'
+import { bucketColor, multLabel } from '../../components/games/plinko/colors.js'
 import PlinkoBoard from '../../components/games/plinko/PlinkoBoard.jsx'
+import SoundToggle from '../../components/games/SoundToggle.jsx'
 import { useDocumentTitle } from '../../hooks/useDocumentTitle.js'
 import { bucketOf, bucketProbability, dropPath, expectedReturn, MULTIPLIERS, RISKS, ROW_OPTIONS } from '../../games/plinko.js'
+import { plinkoSounds } from '../../games/sounds/plinko.js'
 import { playPlinko } from '../../services/backend/api.js'
 import { BACKEND_ENABLED } from '../../services/backend/config.js'
 import { finish, holdServerPortfolio, place, useChips } from '../../store/gameStore.js'
 import { toast } from '../../store/toastStore.js'
 import { roundMoney } from '../../utils/math.js'
-import { formatCurrency } from '../../utils/format.js'
+import { formatCurrency, formatSignedCurrency, pnlTone } from '../../utils/format.js'
+import './plinko.css'
 
 const AUTO_OPTIONS = [1, 5, 10, 25]
 const AUTO_GAP_MS = 240
 const RISK_LABEL = { low: 'Low', medium: 'Medium', high: 'High' }
+/** Landing in a bucket at or above this pays out with confetti. */
+const BIG_WIN = 10
 
 function Segmented({ label, options, value, onChange, disabled, format = String }) {
   return (
@@ -59,6 +68,7 @@ function Rules({ rows, risk }) {
         )}
       </div>
       <p className="text-xs">Each pair of matching edge buckets is counted together.</p>
+      <p className="text-xs">Tip: press Space to drop when you are not typing in a box.</p>
     </>
   )
 }
@@ -69,6 +79,9 @@ export default function PlinkoPage() {
   const board = useRef(null)
   const auto = useRef(null)
   const queued = useRef([])
+  // Backend mode: a drop waiting on the server, and a Stop pressed meanwhile.
+  const requesting = useRef(false)
+  const stopSoon = useRef(false)
   const [betText, setBetText] = useState('10')
   const bet = roundMoney(Number(betText) || 0)
   const [rows, setRows] = useState(16)
@@ -77,6 +90,9 @@ export default function PlinkoPage() {
   const [inFlight, setInFlight] = useState(0)
   const [results, setResults] = useState([])
   const [dropping, setDropping] = useState(false)
+  const [batch, setBatch] = useState(null)
+  const [pop, setPop] = useState(null)
+  const [burst, setBurst] = useState({ n: 0, x: 50 })
   const multipliers = MULTIPLIERS[rows][risk]
   const locked = inFlight > 0 || dropping
 
@@ -91,6 +107,7 @@ export default function PlinkoPage() {
     const id = place({ game: 'plinko', staked: bet, returned, detail: `${mult}× · ${rows} rows, ${RISK_LABEL[risk].toLowerCase()} risk` })
     if (!id) return false
     setInFlight((n) => n + 1)
+    plinkoSounds.drop()
     board.current?.drop({ id, path })
     return true
   }
@@ -98,31 +115,45 @@ export default function PlinkoPage() {
   /** Backend mode: the server plays every ball at once; they are then dropped here one by one. */
   const startRemote = async () => {
     setDropping(true)
+    requesting.current = true
+    stopSoon.current = false
     let res
     try {
       res = await playPlinko({ amount: bet, rows, risk, balls: count })
     } catch (err) {
       setDropping(false)
       return toast({ tone: 'error', title: 'Drop not accepted', description: err.message })
+    } finally {
+      requesting.current = false
     }
     const queue = [...res.balls]
+    // Stop was pressed while the server played: show every ball now.
+    if (stopSoon.current) {
+      for (const ball of queue) dropOne(ball)
+      holdServerPortfolio(res.portfolio)
+      return setDropping(false)
+    }
     queued.current = queue
+    clearInterval(auto.current)
+    let iv = null
     const next = () => {
       const ball = queue.shift()
       if (ball) dropOne(ball)
       if (!queue.length) {
-        clearInterval(auto.current)
+        clearInterval(iv)
         setDropping(false)
       }
     }
     next()
     holdServerPortfolio(res.portfolio)
-    if (queue.length) auto.current = setInterval(next, AUTO_GAP_MS)
+    if (queue.length) iv = auto.current = setInterval(next, AUTO_GAP_MS)
   }
 
   const start = () => {
     if (!(bet >= 0.1)) return toast({ tone: 'error', title: 'Enter a bet of at least $0.10' })
     if (bet > balance) return toast({ tone: 'error', title: 'Not enough chips', description: `Your balance is ${formatCurrency(balance)}.` })
+    // A new drop starts a new tally once the last one has fully landed.
+    setBatch((b) => (b && !locked ? null : b))
     if (BACKEND_ENABLED) {
       if (bet * count > balance) return toast({ tone: 'error', title: 'Not enough chips', description: `${count} balls need ${formatCurrency(bet * count)}.` })
       return startRemote()
@@ -147,6 +178,10 @@ export default function PlinkoPage() {
   }
 
   const stop = () => {
+    if (requesting.current) {
+      stopSoon.current = true
+      return
+    }
     clearInterval(auto.current)
     setDropping(false)
     // Backend mode: the server already played the rest, so drop them all now.
@@ -157,79 +192,82 @@ export default function PlinkoPage() {
   const onLand = (id, bucket) => {
     const entry = finish(id)
     setInFlight((n) => Math.max(0, n - 1))
-    if (entry) setResults((r) => [{ id: entry.id, mult: multipliers[bucket], net: entry.net }, ...r].slice(0, 12))
+    const mult = multipliers[bucket]
+    plinkoSounds.land(mult)
+    if (!entry) return
+    setResults((r) => [{ id: entry.id, mult, bucket, rows }, ...r].slice(0, 24))
+    setBatch((b) => ({ balls: (b?.balls ?? 0) + 1, net: roundMoney((b?.net ?? 0) + entry.net), best: Math.max(b?.best ?? 0, mult) }))
+    if (mult > 1) setPop({ id: entry.id, text: `${multLabel(mult)}× · +${formatCurrency(roundMoney(entry.net))}` })
+    if (mult >= BIG_WIN) setBurst((b) => ({ n: b.n + 1, x: 50 + ((bucket - rows / 2) / (rows + 1.7)) * 100 }))
   }
 
-  const setBetSafe = (v) => setBetText(String(Math.max(0, roundMoney(v))))
+  useSpaceToPlay(() => {
+    if (dropping) stop()
+    else if (bet >= 0.1 && bet <= balance) start()
+  })
+
+  const history = results.map((r) => {
+    const c = bucketColor(r.bucket, r.rows)
+    return { key: r.id, text: `${multLabel(r.mult)}×`, style: { background: c.fill, color: c.text } }
+  })
+  const lastResult = results[0]
+
+  const mainButton = dropping ? (
+    <button type="button" className="btn btn-ghost w-full py-3 text-base" onClick={stop}>
+      Stop
+    </button>
+  ) : (
+    <button type="button" className="btn btn-primary w-full py-3 text-base" onClick={start} disabled={!(bet > 0) || bet > balance}>
+      {count === 1 ? 'Drop ball' : `Drop ${count} balls`}
+    </button>
+  )
 
   return (
     <GameShell game="plinko" title="Plinko" subtitle="Drop a ball through the pins. Pick your rows and risk level." rules={<Rules rows={rows} risk={risk} />}>
       <div className="grid gap-4 md:grid-cols-[16rem_minmax(0,1fr)]">
-        <section className="card order-2 space-y-4 p-4 md:order-1" aria-label="Plinko controls">
-          <div>
-            <label htmlFor="plinko-bet" className="text-xs font-medium text-muted">
-              Bet per ball
-            </label>
-            <div className="mt-1.5 flex gap-1">
-              <div className="relative flex-1">
-                <span className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-sm text-muted">$</span>
-                <input
-                  id="plinko-bet"
-                  type="number"
-                  inputMode="decimal"
-                  min="0.1"
-                  step="1"
-                  className="input pl-6 tabular"
-                  value={betText}
-                  onChange={(e) => setBetText(e.target.value)}
-                />
-              </div>
-              <button type="button" className="btn btn-ghost px-2.5" onClick={() => setBetSafe(bet / 2)}>
-                ½
-              </button>
-              <button type="button" className="btn btn-ghost px-2.5" onClick={() => setBetSafe(Math.min(bet * 2, balance))}>
-                2×
-              </button>
-            </div>
-          </div>
+        <section className="card order-2 flex flex-col gap-4 p-4 md:order-1" aria-label="Plinko controls">
+          <BetAmount label="Bet per ball" value={betText} onChange={setBetText} balance={balance} disabled={dropping} />
           <Segmented label="Risk" options={RISKS} value={risk} onChange={setRisk} disabled={locked} format={(r) => RISK_LABEL[r]} />
           <Segmented label="Rows" options={ROW_OPTIONS} value={rows} onChange={setRows} disabled={locked} />
           <Segmented label="Balls" options={AUTO_OPTIONS} value={count} onChange={setCount} disabled={dropping} />
-          {dropping ? (
-            <button type="button" className="btn btn-ghost w-full" onClick={stop}>
-              Stop
-            </button>
-          ) : (
-            <button type="button" className="btn btn-primary w-full py-3 text-base" onClick={start} disabled={!(bet > 0) || bet > balance}>
-              {count === 1 ? 'Drop ball' : `Drop ${count} balls`}
-            </button>
-          )}
+          <div className="max-md:order-first">{mainButton}</div>
           <p className="text-xs text-subtle">
             {count > 1 ? `Total ${formatCurrency(bet * count)}. ` : ''}
-            {locked ? 'Rows and risk unlock when every ball has landed.' : `Top prize: ${multipliers[0]}× your bet.`}
+            {locked ? 'Rows and risk unlock when every ball has landed.' : `Top prize: ${multLabel(multipliers[0])}× your bet.`}
           </p>
         </section>
 
-        <section className="card order-1 overflow-hidden p-3 md:order-2" aria-label="Plinko board">
-          <div className="rounded-xl bg-[radial-gradient(ellipse_at_top,rgb(141_25_26/0.35),transparent_70%)] px-1 pt-2 pb-1">
-            <PlinkoBoard ref={board} rows={rows} multipliers={multipliers} onLand={onLand} />
+        <section className="card order-1 min-w-0 overflow-hidden p-3 sm:p-4 md:order-2" aria-label="Plinko board">
+          <div className="flex items-center justify-between gap-3 px-1">
+            <HistoryStrip items={history} empty="Results show up here." />
+            <div className="pdl-tools shrink-0">
+              <SoundToggle />
+            </div>
           </div>
-          <div className="mt-3 flex min-h-8 flex-wrap items-center gap-1.5" aria-live="polite" aria-label="Recent results">
-            {results.length ? (
-              results.map((r, i) => (
-                <span
-                  key={r.id}
-                  className={`rounded-md px-2 py-1 text-xs font-bold tabular ${i === 0 ? 'animate-chip-pop' : ''} ${
-                    r.mult >= 2 ? 'bg-warn text-black' : r.mult >= 1 ? 'bg-yes-soft text-yes' : 'bg-surface-2 text-muted'
-                  }`}
-                >
-                  {r.mult}×
-                </span>
-              ))
-            ) : (
-              <span className="text-xs text-subtle">Results show up here.</span>
-            )}
+          <div className="plinko-stage relative mt-3 rounded-xl px-1 pt-3 pb-2">
+            <div className="pointer-events-none absolute inset-x-0 top-2 z-10 flex justify-center">
+              <WinPop pop={pop} />
+            </div>
+            <PlinkoBoard ref={board} rows={rows} multipliers={multipliers} onLand={onLand} onPeg={plinkoSounds.peg} />
+            <Confetti burst={burst.n} x={burst.x} y={88} />
           </div>
+          <dl className="mt-3 grid grid-cols-3 gap-2 text-center">
+            <div className="rounded-lg bg-surface-2 px-2 py-1.5">
+              <dt className="text-[11px] text-muted">Last ball</dt>
+              <dd className="font-semibold tabular">{lastResult ? `${multLabel(lastResult.mult)}×` : '–'}</dd>
+            </div>
+            <div className="rounded-lg bg-surface-2 px-2 py-1.5">
+              <dt className="text-[11px] text-muted">{inFlight ? `In play · ${inFlight}` : 'This drop'}</dt>
+              <dd className={`font-semibold tabular ${pnlTone(batch?.net ?? 0)}`}>{batch ? formatSignedCurrency(batch.net) : '–'}</dd>
+            </div>
+            <div className="rounded-lg bg-surface-2 px-2 py-1.5">
+              <dt className="text-[11px] text-muted">Best</dt>
+              <dd className="font-semibold tabular">{batch ? `${multLabel(batch.best)}×` : '–'}</dd>
+            </div>
+          </dl>
+          <p className="sr-only" aria-live="polite">
+            {lastResult ? `Ball landed on ${lastResult.mult}×.` : ''}
+          </p>
         </section>
       </div>
     </GameShell>

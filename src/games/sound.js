@@ -37,7 +37,8 @@ function audio() {
   return ctx
 }
 
-function tone(freq, { at = 0, dur = 0.12, type = 'sine', gain = 0.12, slide = null } = {}) {
+/** One synthesized note (respects the mute switch). Games can build their own effects from it. */
+export function tone(freq, { at = 0, dur = 0.12, type = 'sine', gain = 0.12, slide = null } = {}) {
   const a = audio()
   if (!a) return
   const t = a.currentTime + at
