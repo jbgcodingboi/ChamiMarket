@@ -1,0 +1,157 @@
+/* Roulette table and wheel effects. Colors come from the theme tokens in index.css. */
+
+.rt-rail {
+  background: linear-gradient(160deg, #6b4423, #3d2410 55%, #2a1708);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.12),
+    0 12px 30px -12px rgb(0 0 0 / 0.7);
+}
+.rt-rail > .felt {
+  box-shadow: inset 0 2px 14px rgb(0 0 0 / 0.45);
+  transition: filter 300ms;
+}
+.rt-locked > .felt {
+  filter: saturate(0.8) brightness(0.92);
+}
+
+/* Numbers covered by the bet under the pointer. */
+.rt-lit {
+  filter: brightness(1.45);
+  box-shadow: inset 0 0 0 2px rgb(255 255 255 / 0.75);
+}
+
+/* The winning number: a gold frame, a few pulses, and the dolly. */
+.rt-win-cell {
+  box-shadow:
+    inset 0 0 0 3px var(--color-warn),
+    0 0 18px 2px rgb(232 177 58 / 0.55);
+  animation: rt-win 900ms ease-out 3;
+}
+@keyframes rt-win {
+  0% { box-shadow: inset 0 0 0 3px var(--color-warn), 0 0 0 0 rgb(232 177 58 / 0.9); }
+  70% { box-shadow: inset 0 0 0 3px var(--color-warn), 0 0 22px 8px rgb(232 177 58 / 0.25); }
+  100% { box-shadow: inset 0 0 0 3px var(--color-warn), 0 0 18px 2px rgb(232 177 58 / 0.55); }
+}
+/* Outside bets that won with that number. */
+.rt-win-outside {
+  background-color: rgb(232 177 58 / 0.16);
+  box-shadow: inset 0 0 0 2px rgb(232 177 58 / 0.7);
+}
+
+.rt-dolly {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 10px;
+  height: 10px;
+  border-radius: 9999px;
+  background: radial-gradient(circle at 35% 35%, #fff, #f6d77a 55%, #b8891f);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.6);
+  animation: rt-dolly 420ms cubic-bezier(0.2, 0.9, 0.3, 1.5) both;
+  pointer-events: none;
+}
+@keyframes rt-dolly {
+  from { transform: translateY(-12px) scale(0.4); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+
+/* A chip dropped on the felt, and how it reads once the ball has landed. */
+.rt-chip-drop {
+  display: inline-flex;
+  filter: drop-shadow(0 2px 2px rgb(0 0 0 / 0.55));
+  animation: rt-chip-drop 260ms cubic-bezier(0.2, 0.9, 0.3, 1.35) both;
+  transition: opacity 400ms, filter 400ms, transform 400ms;
+}
+@keyframes rt-chip-drop {
+  from { transform: translateY(-14px) scale(1.25); opacity: 0; }
+  60% { opacity: 1; }
+  to { transform: none; opacity: 1; }
+}
+.rt-chip-win {
+  filter: drop-shadow(0 0 6px rgb(255 224 138 / 0.95)) drop-shadow(0 2px 2px rgb(0 0 0 / 0.5));
+  animation: rt-chip-win 700ms cubic-bezier(0.2, 0.9, 0.3, 1.4) 2;
+}
+@keyframes rt-chip-win {
+  0%, 100% { transform: none; }
+  40% { transform: translateY(-5px) scale(1.12); }
+}
+.rt-chip-lose {
+  opacity: 0.35;
+  filter: grayscale(0.7);
+  transform: scale(0.9);
+}
+
+/* Wheel: the number in the hub and the lit pocket. */
+.rw-medal {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: rw-medal 420ms cubic-bezier(0.2, 0.9, 0.3, 1.4) both;
+}
+@keyframes rw-medal {
+  from { transform: scale(0.2); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+.rw-pocket-glow {
+  animation: rw-glow 1.4s ease-in-out infinite alternate;
+}
+@keyframes rw-glow {
+  from { opacity: 0.55; }
+  to { opacity: 1; }
+}
+
+/* "+$123" rising off the wheel after a win. */
+.rt-float {
+  animation: rt-float 1.8s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+  text-shadow: 0 2px 12px rgb(0 0 0 / 0.8);
+}
+@keyframes rt-float {
+  0% { transform: translate(-50%, 10px) scale(0.7); opacity: 0; }
+  15% { transform: translate(-50%, 0) scale(1.08); opacity: 1; }
+  70% { transform: translate(-50%, -26px) scale(1); opacity: 1; }
+  100% { transform: translate(-50%, -44px) scale(1); opacity: 0; }
+}
+
+/* Result card glow on a win. */
+.rt-result-win {
+  box-shadow:
+    inset 0 0 0 1px rgb(47 191 113 / 0.45),
+    0 0 28px -6px rgb(47 191 113 / 0.55);
+}
+
+.rt-dots::after {
+  content: '';
+  display: inline-block;
+  width: 1.2em;
+  text-align: left;
+  animation: rt-dots 1.2s steps(4) infinite;
+}
+@keyframes rt-dots {
+  0% { content: ''; }
+  25% { content: '.'; }
+  50% { content: '..'; }
+  75% { content: '...'; }
+}
+
+.rt-history-new {
+  animation: rt-history 380ms cubic-bezier(0.2, 0.9, 0.3, 1.4) both;
+}
+@keyframes rt-history {
+  from { transform: translateX(-10px) scale(0.5); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rt-win-cell,
+  .rt-chip-win,
+  .rt-chip-drop,
+  .rt-dolly,
+  .rw-medal,
+  .rw-pocket-glow,
+  .rt-history-new,
+  .rt-dots::after {
+    animation: none;
+  }
+  .rt-float {
+    display: none;
+  }
+}
