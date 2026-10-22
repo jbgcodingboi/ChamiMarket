@@ -983,7 +983,7 @@ language plpgsql volatile security definer set search_path = '' as $$
 declare v_user uuid := private.uid(); pf public.portfolios; cleared int; last_reset timestamptz;
 begin
   select * into pf from public.portfolios where user_id = v_user for update;
-  -- A short wait between resets, so a reset can't be spammed after every losing bet.
+  -- A short wait between resets (5 minutes), so resetting can't be hammered in a loop.
   select max(created_at) into last_reset from public.history where user_id = v_user and type = 'reset';
   if last_reset > now() - interval '5 minutes' then
     raise exception 'You can reset again in % minute%.', ceil(extract(epoch from last_reset + interval '5 minutes' - now()) / 60),
