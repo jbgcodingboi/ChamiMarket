@@ -1,0 +1,103 @@
+/* Golden Sevens: reel strips, landings, win glow and the big win overlay. */
+.slot-frame {
+  background:
+    radial-gradient(120% 80% at 50% 0%, rgba(251, 191, 36, 0.12), transparent 60%),
+    linear-gradient(180deg, #1a1206 0%, #0d0904 100%);
+  border: 3px solid transparent;
+  border-image: linear-gradient(135deg, #fde68a, #b45309 40%, #fbbf24 60%, #92400e) 1;
+  box-shadow: 0 0 40px rgba(251, 191, 36, 0.15), inset 0 0 30px rgba(0, 0, 0, 0.6);
+}
+.slot-frame.is-free {
+  border-image: linear-gradient(135deg, #f0abfc, #7c3aed 40%, #e879f9 60%, #6d28d9) 1;
+  box-shadow: 0 0 48px rgba(192, 38, 211, 0.3), inset 0 0 30px rgba(0, 0, 0, 0.6);
+}
+.slot-reel {
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.55), rgba(255, 255, 255, 0.04) 50%, rgba(0, 0, 0, 0.55));
+}
+.slot-strip {
+  animation: slot-spin 0.32s linear infinite;
+  filter: blur(1.5px);
+}
+.slot-fast .slot-strip {
+  animation-duration: 0.2s;
+}
+@keyframes slot-spin {
+  from {
+    transform: translateY(-50%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+.slot-land {
+  animation: slot-land 0.28s cubic-bezier(0.2, 1.4, 0.4, 1);
+}
+@keyframes slot-land {
+  0% {
+    transform: translateY(-18%);
+  }
+  100% {
+    transform: translateY(0);
+  }
+}
+.slot-cell.is-hit {
+  animation: slot-hit 0.9s ease-in-out infinite;
+  box-shadow: 0 0 0 2px #fbbf24, 0 0 18px rgba(251, 191, 36, 0.7);
+}
+@keyframes slot-hit {
+  50% {
+    transform: scale(1.07);
+  }
+}
+.slot-cell.is-dim {
+  opacity: 0.35;
+}
+.slot-line {
+  stroke-dasharray: 6 4;
+  animation: slot-line 0.6s linear infinite;
+}
+@keyframes slot-line {
+  to {
+    stroke-dashoffset: -20;
+  }
+}
+.slot-big {
+  animation: slot-big-in 0.4s cubic-bezier(0.2, 1.4, 0.4, 1);
+}
+@keyframes slot-big-in {
+  from {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+}
+.slot-big-title {
+  background: linear-gradient(180deg, #fff7d6, #fbbf24 55%, #b45309);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  text-shadow: 0 4px 24px rgba(251, 191, 36, 0.45);
+}
+.slot-coin {
+  position: absolute;
+  top: -10%;
+  animation: slot-coin linear forwards;
+}
+@keyframes slot-coin {
+  to {
+    transform: translateY(130vh) rotate(720deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .slot-strip,
+  .slot-land,
+  .slot-cell.is-hit,
+  .slot-line,
+  .slot-big,
+  .slot-coin {
+    animation: none;
+    filter: none;
+  }
+  .slot-coin {
+    display: none;
+  }
+}

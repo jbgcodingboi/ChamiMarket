@@ -92,10 +92,10 @@ create table if not exists public.game_rounds (
 -- Only rebuilt when the game list changes, so a re-run doesn't lock and recheck the whole table.
 do $$ begin
   if coalesce((select pg_get_constraintdef(oid) from pg_constraint
-      where conrelid = 'public.game_rounds'::regclass and conname = 'game_rounds_game_check'), '') not like '%boneyard%' then
+      where conrelid = 'public.game_rounds'::regclass and conname = 'game_rounds_game_check'), '') not like '%slots%' then
     alter table public.game_rounds drop constraint if exists game_rounds_game_check;
     alter table public.game_rounds add constraint game_rounds_game_check
-      check (game in ('roulette', 'blackjack', 'plinko', 'dice', 'mines', 'chicken', 'limbo', 'crash', 'boneyard'));
+      check (game in ('roulette', 'blackjack', 'plinko', 'dice', 'mines', 'chicken', 'limbo', 'crash', 'boneyard', 'slots'));
   end if;
 end $$;
 create index if not exists game_rounds_user_idx on public.game_rounds (user_id, created_at desc);
@@ -967,10 +967,11 @@ language plpgsql volatile security definer set search_path = '' as $$
 declare v_user uuid := private.uid(); pf public.portfolios; cleared int; last_reset timestamptz;
 begin
   select * into pf from public.portfolios where user_id = v_user for update;
-  -- One reset a day, so going all in and resetting after every loss isn't free.
+  -- A short wait between resets, so a reset can't be spammed after every losing bet.
   select max(created_at) into last_reset from public.history where user_id = v_user and type = 'reset';
-  if last_reset > now() - interval '24 hours' then
-    raise exception 'You can reset once every 24 hours. Next reset after %.', to_char(last_reset + interval '24 hours', 'Mon DD, HH24:MI "UTC"');
+  if last_reset > now() - interval '5 minutes' then
+    raise exception 'You can reset again in % minute%.', ceil(extract(epoch from last_reset + interval '5 minutes' - now()) / 60),
+      case when ceil(extract(epoch from last_reset + interval '5 minutes' - now()) / 60) = 1 then '' else 's' end;
   end if;
   select count(*) into cleared from public.positions where user_id = v_user;
   delete from public.positions where user_id = v_user;
@@ -2282,12 +2283,19 @@ begin
   return jsonb_build_object('round', private.crash_view(n), 'portfolio', private.portfolio_json(v_user));
 end $$;
 
--- Boneyard (ways slot) -------------------------------------------------------------
--- The same engine as src/games/boneyard.js, step for step: 22 provably fair
--- floats per spin, integer "units" of a hundredth of the bet. See that file
--- for the rules. Tests check both produce the same rounds.
+-- Golden Sevens (slots) -----------------------------------------------------------
+-- The same engine as src/games/slots.js, step for step: 24 provably fair
+-- floats per spin, integer "units" of a hundredth of the bet (a line bet is
+-- 5 units). See that file for the rules. Tests check both give the same rounds.
+-- Boneyard, the slot this replaced, is retired; its past rounds stay in history.
 
-create or replace function private.by_pick(f float8, syms text[], w int[]) returns text
+drop function if exists public.play_boneyard(numeric);
+drop function if exists private.by_round(float8[]);
+drop function if exists private.by_spin(float8[], int, text, int);
+drop function if exists private.by_pay(text, int);
+drop function if exists private.by_pick(float8, text[], int[]);
+
+create or replace function private.weighted_pick(f float8, syms text[], w int[]) returns text
 language plpgsql immutable set search_path = '' as $$
 declare total int := 0; r int; i int;
 begin
@@ -2300,166 +2308,127 @@ begin
   return syms[array_length(syms, 1)];
 end $$;
 
-create or replace function private.by_pay(p_sym text, p_count int) returns int
+/** Pay for 3, 4 or 5 of a kind on a line, in line bets. */
+create or replace function private.slot_pay(p_sym text, p_count int) returns int
 language sql immutable set search_path = '' as $$
   select (case p_sym
-    when 'jack' then array[4, 10, 25] when 'queen' then array[4, 12, 30] when 'king' then array[5, 15, 40] when 'ace' then array[7, 20, 50]
-    when 'gambler' then array[12, 40, 100] when 'undertaker' then array[15, 50, 125] when 'outlaw' then array[20, 60, 175]
-    when 'sheriff' then array[25, 100, 250] end)[p_count - 2]
+    when 'cherry' then array[2, 6, 20] when 'lemon' then array[2, 6, 20] when 'orange' then array[3, 10, 35] when 'plum' then array[3, 10, 35]
+    when 'bell' then array[6, 20, 90] when 'bar' then array[10, 35, 175] when 'seven' then array[18, 90, 500]
+    when 'diamond' then array[40, 250, 3000] end)[p_count - 2]
 $$;
 
-create or replace function private.by_spin(fl float8[], p_at int, p_mode text, p_global int) returns jsonb
+create or replace function private.slot_spin(fl float8[], p_at int, p_free boolean) returns jsonb
 language plpgsql immutable set search_path = '' as $$
 declare
-  nrows int[] := array[2, 3, 3, 3, 1];
-  off int[] := array[0, 2, 5, 8, 11];
-  cells text[] := array_fill(null::text, array[12]);
-  spl boolean[] := array_fill(false, array[12]);
-  nmult int[] := array[0, 0, 0, 0, 0];
-  nvis int[] := array[0, 0, 0, 0, 0];
-  r1s text[] := array['jack', 'queen', 'king', 'ace', 'gambler', 'undertaker', 'outlaw', 'sheriff', 'scatter'];
-  r1w int[] := array[14, 14, 13, 13, 8, 7, 6, 5, 3];
-  mids text[] := array['jack', 'queen', 'king', 'ace', 'gambler', 'undertaker', 'outlaw', 'sheriff', 'wild', 'scatter'];
-  midw int[] := array[14, 14, 13, 13, 8, 7, 6, 5, 7, 4];
-  r5s text[] := array['jack', 'queen', 'king', 'ace', 'gambler', 'undertaker', 'outlaw', 'sheriff', 'split', 'coffin'];
-  r5w int[] := array[10, 10, 10, 10, 7, 6, 5, 4, 3, 2];
-  chars text[] := array['gambler', 'undertaker', 'outlaw', 'sheriff'];
-  paying text[] := array['jack', 'queen', 'king', 'ace', 'gambler', 'undertaker', 'outlaw', 'sheriff'];
-  rm_syms text[] := array['5', '10', '25', '50', '100', '250', '500', '999'];
-  rm_w int[] := array[540, 250, 120, 60, 35, 15, 5, 2];
-  cowboy text; rsym text; rval int; srow int; landed int := 0; nglobal int;
-  r int; c int; o int; vis int; sym text; cnt int; k int; ways bigint; nm int; mult bigint; win bigint; units bigint := 0;
-  wins jsonb := '[]'; reels jsonb := '[]'; reel jsonb; nudges jsonb := '[]'; others text[]; scat int := 0; v_bonus text;
+  outer_s text[] := array['cherry', 'lemon', 'orange', 'plum', 'bell', 'bar', 'seven', 'diamond', 'scatter'];
+  outer_w int[] := array[20, 18, 16, 14, 10, 7, 4, 2, 3];
+  mid_s text[] := array['cherry', 'lemon', 'orange', 'plum', 'bell', 'bar', 'seven', 'diamond', 'wild', 'scatter'];
+  mid_w int[] := array[20, 18, 16, 14, 10, 7, 4, 2, 5, 3];
+  wm_s text[] := array['2', '3', '5', '10'];
+  wm_w int[] := array[56, 27, 13, 4];
+  lines int[] := array[
+    [1, 1, 1, 1, 1], [0, 0, 0, 0, 0], [2, 2, 2, 2, 2], [0, 1, 2, 1, 0], [2, 1, 0, 1, 2],
+    [0, 0, 1, 2, 2], [2, 2, 1, 0, 0], [1, 0, 0, 0, 1], [1, 2, 2, 2, 1], [0, 1, 0, 1, 0],
+    [2, 1, 2, 1, 2], [1, 0, 1, 0, 1], [1, 2, 1, 2, 1], [0, 1, 1, 1, 0], [2, 1, 1, 1, 2],
+    [1, 1, 0, 1, 1], [1, 1, 2, 1, 1], [0, 2, 0, 2, 0], [2, 0, 2, 0, 2], [0, 2, 2, 2, 0]];
+  cells text[] := array_fill(null::text, array[15]);
+  mults int[] := array_fill(1, array[15]);
+  r int; rw int; li int; idx int; first text; sym text; cnt int; mult bigint; win bigint; units bigint := 0;
+  wins jsonb := '[]'; grid jsonb := '[]'; mgrid jsonb := '[]'; col jsonb; mcol jsonb; scat int := 0; scat_units bigint := 0; spins int := 0;
 begin
-  cells[1] := private.by_pick(fl[p_at + 1], r1s, r1w);
-  cells[2] := private.by_pick(fl[p_at + 2], r1s, r1w);
-  for r in 2..4 loop
-    o := 2 + (r - 2) * 5;
-    if floor(fl[p_at + o + 1] * 1000) < 40 then
-      vis := 1 + floor(fl[p_at + o + 2] * 3)::int;
-      nvis[r] := vis;
-      nmult[r] := 1 + (3 - vis);
-      for c in 1..3 loop cells[off[r] + c] := 'wild'; end loop;
-    else
-      for c in 1..3 loop cells[off[r] + c] := private.by_pick(fl[p_at + o + 2 + c], mids, midw); end loop;
-    end if;
+  for r in 0..4 loop
+    for rw in 0..2 loop
+      idx := r * 3 + rw + 1;
+      if r = 0 or r = 4 then cells[idx] := private.weighted_pick(fl[p_at + idx], outer_s, outer_w);
+      else cells[idx] := private.weighted_pick(fl[p_at + idx], mid_s, mid_w);
+      end if;
+      if cells[idx] = 'wild' then
+        mults[idx] := private.weighted_pick(fl[p_at + 16 + (r - 1) * 3 + rw], wm_s, wm_w)::int;
+      end if;
+      if cells[idx] = 'scatter' then scat := scat + 1; end if;
+    end loop;
   end loop;
-  if p_mode = 'last-rites' then
-    cowboy := chars[1 + floor(fl[p_at + 20] * 4)::int];
-    cells[12] := cowboy;
-    others := array_remove(chars, cowboy);
-    rsym := others[1 + floor(fl[p_at + 21] * 3)::int];
-    rval := private.by_pick(fl[p_at + 22], rm_syms, rm_w)::int;
-  else
-    cells[12] := private.by_pick(fl[p_at + 18], r5s, r5w);
-  end if;
 
-  if cells[12] = 'split' then
-    srow := floor(fl[p_at + 19] * 3)::int;
+  for li in 1..20 loop
+    first := cells[lines[li][1] + 1];
+    continue when first = 'scatter';
+    cnt := 1; mult := 1;
     for r in 1..4 loop
-      if srow < nrows[r] then spl[off[r] + srow + 1] := true; end if;
-      if nmult[r] > 0 then nmult[r] := nmult[r] * 2; end if;
+      idx := r * 3 + lines[li][r + 1] + 1;
+      sym := cells[idx];
+      exit when sym <> first and sym <> 'wild';
+      if sym = 'wild' then mult := mult * mults[idx]; end if;
+      cnt := cnt + 1;
     end loop;
-  end if;
-
-  if p_mode <> 'base' then
-    for r in 2..4 loop
-      if nmult[r] > 0 then landed := landed + 1;
-      else for c in 1..3 loop if cells[off[r] + c] = 'wild' then landed := landed + 1; end if; end loop;
-      end if;
-    end loop;
-    if cells[12] = 'split' then landed := landed + 1; end if;
-  end if;
-  nglobal := case when p_mode = 'base' then 1 else p_global + landed end;
-
-  foreach sym in array paying loop
-    continue when sym = cowboy;
-    k := 0; ways := 1; nm := 0;
-    for r in 1..5 loop
-      cnt := 0;
-      if nmult[r] > 0 then
-        cnt := nrows[r] + case when srow is not null and r < 5 and srow < nrows[r] then 1 else 0 end;
-      else
-        for c in 1..nrows[r] loop
-          if cells[off[r] + c] = sym or cells[off[r] + c] in ('wild', 'split') or cells[off[r] + c] = coalesce(cowboy, '') then
-            cnt := cnt + case when cells[off[r] + c] = 'split' or spl[off[r] + c] then 2 else 1 end;
-          end if;
-        end loop;
-      end if;
-      exit when cnt = 0;
-      k := r;
-      ways := ways * cnt;
-      if nmult[r] > 0 then nm := nm + nmult[r]; end if;
-    end loop;
-    continue when k < 3;
-    mult := (case when nm = 0 then 1 else nm end) * (case when sym = rsym then rval else 1 end);
-    win := private.by_pay(sym, k) * ways * mult;
-    wins := wins || jsonb_build_object('symbol', sym, 'count', k, 'ways', ways, 'mult', mult, 'units', win);
+    continue when cnt < 3;
+    win := private.slot_pay(first, cnt) * 5 * mult;
+    wins := wins || jsonb_build_object('line', li - 1, 'symbol', first, 'count', cnt, 'mult', mult, 'units', win);
     units := units + win;
   end loop;
-  units := units * nglobal;
 
-  for r in 1..5 loop
-    reel := '[]';
-    for c in 1..nrows[r] loop reel := reel || to_jsonb(cells[off[r] + c]); end loop;
-    reels := reels || jsonb_build_array(reel);
-    nudges := nudges || case when nmult[r] > 0
-      then jsonb_build_array(jsonb_build_object('visible', nvis[r], 'steps', 3 - nvis[r], 'mult', nmult[r])) else '[null]'::jsonb end;
-  end loop;
-  if p_mode = 'base' then
-    for c in 1..11 loop if cells[c] = 'scatter' then scat := scat + 1; end if; end loop;
+  if scat >= 3 then
+    scat_units := (array[2, 10, 50])[least(scat, 5) - 2] * 100;
+    spins := (array[10, 15, 20])[least(scat, 5) - 2];
   end if;
-  v_bonus := case when scat >= 3 then case when cells[12] = 'coffin' then 'last-rites' else 'high-noon' end end;
-  return jsonb_build_object('reels', reels, 'nudges', nudges, 'splitRow', srow, 'wins', wins,
-    'units', case when p_mode = 'base' and units > 0 and units < 100 then 0 else units end,
-    'rip', p_mode = 'base' and units > 0 and units < 100,
-    'global', nglobal, 'cowboy', cowboy,
-    'random', case when rsym is null then null else jsonb_build_object('symbol', rsym, 'value', rval) end,
-    'scatters', scat, 'bonus', v_bonus);
-end $$;
+  units := units + scat_units;
+  if p_free then units := units * 3; scat_units := scat_units * 3; end if;
 
-/** A whole round: the base spin, then any free spins, stopping at the 300,000× cap. */
-create or replace function private.by_round(fl float8[]) returns jsonb
-language plpgsql immutable set search_path = '' as $$
-declare sp jsonb; spins jsonb; total bigint; v_bonus text; g int := 1; i int; n int;
-begin
-  sp := private.by_spin(fl, 0, 'base', 1);
-  spins := jsonb_build_array(sp);
-  total := least(30000000, (sp ->> 'units')::bigint);
-  v_bonus := sp ->> 'bonus';
-  if v_bonus is not null and total < 30000000 then
-    n := case when v_bonus = 'last-rites' then 10 else 8 end;
-    for i in 1..n loop
-      sp := private.by_spin(fl, i * 22, v_bonus, g);
-      g := (sp ->> 'global')::int;
-      spins := spins || jsonb_build_array(sp);
-      total := least(30000000, total + (sp ->> 'units')::bigint);
-      exit when total >= 30000000;
+  for r in 0..4 loop
+    col := '[]'; mcol := '[]';
+    for rw in 0..2 loop
+      col := col || to_jsonb(cells[r * 3 + rw + 1]);
+      mcol := mcol || to_jsonb(mults[r * 3 + rw + 1]);
     end loop;
-  end if;
-  return jsonb_build_object('spins', spins, 'bonus', v_bonus, 'units', total, 'capped', total >= 30000000);
+    grid := grid || jsonb_build_array(col);
+    mgrid := mgrid || jsonb_build_array(mcol);
+  end loop;
+  return jsonb_build_object('grid', grid, 'mults', mgrid, 'wins', wins, 'scatters', scat, 'scatterUnits', scat_units,
+    'freeSpins', spins, 'units', units);
 end $$;
 
-create or replace function public.play_boneyard(p_amount numeric) returns jsonb
+/** A whole round: the base spin, then free spins with retriggers (30 at most), stopping at the 50,000x cap. */
+create or replace function private.slot_round(fl float8[]) returns jsonb
+language plpgsql immutable set search_path = '' as $$
+declare sp jsonb; spins jsonb; total bigint; left_ int; awarded int; extra int; i int := 1;
+begin
+  sp := private.slot_spin(fl, 0, false);
+  spins := jsonb_build_array(sp);
+  total := least(5000000, (sp ->> 'units')::bigint);
+  left_ := least(30, (sp ->> 'freeSpins')::int);
+  awarded := left_;
+  while left_ > 0 and total < 5000000 loop
+    sp := private.slot_spin(fl, i * 24, true);
+    spins := spins || jsonb_build_array(sp);
+    total := least(5000000, total + (sp ->> 'units')::bigint);
+    left_ := left_ - 1;
+    extra := least((sp ->> 'freeSpins')::int, 30 - awarded);
+    left_ := left_ + extra;
+    awarded := awarded + extra;
+    i := i + 1;
+  end loop;
+  return jsonb_build_object('spins', spins, 'freeSpins', awarded, 'units', total, 'capped', total >= 5000000);
+end $$;
+
+create or replace function public.play_slots(p_amount numeric) returns jsonb
 language plpgsql volatile security definer set search_path = '' as $$
 declare v_user uuid := private.uid(); pf public.portfolios; amt numeric := private.bet_amount(p_amount); fs record; rd jsonb;
-  units bigint; ret numeric; label text;
+  units bigint; ret numeric; fsp int;
 begin
   perform private.rate_limit(v_user, 'slot', 120);
   select * into pf from public.portfolios where user_id = v_user for update;
   if amt > pf.cash then raise exception 'Not enough cash for this bet.'; end if;
   select * into fs from private.fair_next(v_user);
-  rd := private.by_round(private.fair_floats(fs.server_seed, fs.client_seed, fs.nonce, 242));
+  rd := private.slot_round(private.fair_floats(fs.server_seed, fs.client_seed, fs.nonce, 744));
   units := (rd ->> 'units')::bigint;
+  fsp := (rd ->> 'freeSpins')::int;
   ret := least(trunc(amt * units / 100, 2), 1e12);
   update public.portfolios set cash = cash - amt where user_id = v_user;
-  label := case rd ->> 'bonus' when 'high-noon' then 'High Noon free spins' when 'last-rites' then 'Last Rites free spins' end;
-  perform private.game_round(v_user, pf.run, 'boneyard', amt, ret,
-    case when units > 0 then concat_ws(' · ', label, private.cents_mult(units) || case when (rd ->> 'capped')::boolean then ' (max win)' else '' end)
-    when (rd -> 'spins' -> 0 ->> 'rip')::boolean then 'R.I.P.' else coalesce(label, 'No win') end);
-  perform private.game_activity(v_user, 'boneyard', amt, ret - amt,
-    case when units > 0 then concat_ws(' ', 'hit', private.cents_mult(units), case when label is not null then 'in ' || label end)
-    when (rd -> 'spins' -> 0 ->> 'rip')::boolean then 'got R.I.P.''d' else 'missed' end);
+  perform private.game_round(v_user, pf.run, 'slots', amt, ret,
+    concat_ws(' · ', case when fsp > 0 then fsp || ' free spins' end,
+      case when units > 0 then private.cents_mult(units) || case when (rd ->> 'capped')::boolean then ' (max win)' else '' end else 'No win' end));
+  perform private.game_activity(v_user, 'slots', amt, ret - amt,
+    case when units > 0 then 'hit ' || private.cents_mult(units) || case when fsp > 0 then ' with ' || fsp || ' free spins' else '' end
+    else 'spun' end);
   return jsonb_build_object('round', rd, 'payout', ret, 'nonce', fs.nonce, 'portfolio', private.portfolio_json(v_user));
 end $$;
 
@@ -2564,7 +2533,7 @@ grant execute on function
   public.crash_start(numeric, numeric),
   public.crash_state(),
   public.crash_cashout(),
-  public.play_boneyard(numeric),
+  public.play_slots(numeric),
   public.mines_state(),
   public.mines_start(numeric, int),
   public.mines_reveal(int),

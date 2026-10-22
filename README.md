@@ -192,16 +192,16 @@ sampling, so outcomes are unbiased.
   target times the bet when the draw reaches it. **Crash** draws the same number as the crash point and grows the
   multiplier as e^(0.00006 × ms) (2× after about 11.6 seconds): cash out before it crashes, or set an auto cash-out.
   The server times the round and keeps the crash point hidden until it's over.
-- **Boneyard**: a high-volatility western ways slot on a 2-3-3-3-1 grid (54 ways on a plain spin). Nudge Wilds on
-  reels 2 to 4 nudge to fill the reel and gain +1 multiplier per step; Split Wilds on reel 5 count twice and split a
-  row of the reels to their left, doubling those symbols and any Nudge Wild multiplier. In the base game a win
-  smaller than the bet pays nothing (the R.I.P. rule). 3 scatters start **High Noon** (8 free spins with a global
-  multiplier that grows with every wild and never resets); with a coffin on reel 5 they start **Last Rites** (10 free
-  spins that also turn one character wild each spin and give another a random 5× to 999× multiplier). Wins stop at
-  300,000× the bet. A 16 million round simulation puts the return at about 96%. Its own design, inspired by the
-  mechanics of high-volatility slots, not a copy of any commercial game.
+- **Golden Sevens**: a classic 5-reel, 3-row slot with 20 fixed paylines (cherries, lemons, oranges, grapes, bells,
+  BARs, sevens and diamonds). Wilds land on reels 2 to 4, stand in for any symbol except the star, and carry a 2×, 3×,
+  5× or 10× multiplier; wild multipliers on one line multiply, so three 10× wilds make a line pay 1,000×. 3, 4 or 5
+  stars anywhere pay 2×, 10× or 50× the bet and start 10, 15 or 20 free spins where every win pays triple and stars
+  add more spins (up to 30). A round pays at most 50,000× the bet. A 20 million round simulation puts the return at
+  about 96% (lines 67%, free spins 25%, star pays 3%), with a win on about 43% of spins. Spinning reels that stop one
+  by one, payline highlights, Big/Mega/Epic win celebrations, turbo spins, autoplay and Space to spin. It replaced
+  Boneyard, whose past rounds stay in players' history.
 
-Dice, Limbo, Boneyard, Mines and Chicken Cross have **auto play**: a number of bets, raising the bet by a percentage after a win or a
+Dice, Limbo, Golden Sevens, Mines and Chicken Cross have **auto play**: a number of bets, raising the bet by a percentage after a win or a
 loss (one click sets up Martingale), and stops at a profit or loss you choose. Mines auto opens the same picked tiles
 every round; Chicken Cross auto cashes out at a lane you choose. Small synthesized sounds can be muted.
 
@@ -210,7 +210,7 @@ They are also **provably fair**, using the scheme Stake-style games publish: eac
 of the server seed before betting, and the nonce counts your bets. The seeds are set by the server and players can't
 change them. After 100 bets the pair is retired (never while a Mines, Chicken Cross or Crash round is open), its server
 seed is revealed, and the built-in verifier recomputes any dice roll, mine layout, crash lane, Limbo or Crash result
-or Boneyard round made with it.
+or Golden Sevens spin made with it.
 With the backend, the server seed, mine positions and crash lane never leave the server until the round or seed pair
 is finished; the database functions use the same formulas, and tests check both produce identical results.
 
@@ -283,7 +283,7 @@ browser. Connecting a free [Supabase](https://supabase.com) project turns Chami 
   way to reset a forgotten password, and using it issues a new one. A new code can be made from the account menu.
 - **Fair play rules on the server**: hourly crypto markets are priced from live Coinbase spot at trade time (the
   browser shows the same live price), Polymarket trades stop once a market stops taking orders, payouts round
-  down to the cent, balance resets are limited to one a day, and refused trades still count toward rate limits.
+  down to the cent, balance resets need a 5-minute wait between them, and refused trades still count toward rate limits.
   Usernames can't copy a simulated player or look official (look-alikes such as `quietkeIIy` included).
 - **Delete account** in the account menu, after typing DELETE to confirm. The server
   (`delete_account`) removes the login and everything tied to it, including leaderboard rows and feed entries.
