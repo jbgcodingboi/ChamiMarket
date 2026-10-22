@@ -53,7 +53,8 @@ Requires Node 20.19+ (Node 22 recommended).
   wagered, biggest win and favorite game). Markets PnL plus games net always equals the overall PnL. The selected
   board is kept in the URL (`#/leaderboard?board=games`).
 - **Guest mode**: everything is browsable without an account; trading, the portfolio and resets need one.
-- **Games**: Roulette, Blackjack, Plinko, Dice, Mines and Chicken Cross, played with your portfolio cash (see below).
+- **Games**: Roulette, Blackjack, Plinko, Dice, Mines, Chicken Cross, Limbo (with Crash) and the Golden Sevens slot,
+  played with your portfolio cash (see below).
 
 ## How the paper trading math works
 
@@ -163,7 +164,7 @@ Polymarket's resolution. Only markets whose outcomes match both teams of one ESP
 
 The **Games** tab (between Markets and Leaderboard) has eight casino games that bet with your portfolio cash, the
 same $100,000 you trade with. Wins and losses change your net worth, the equity chart and your leaderboard rank
-like any trade, and a balance reset covers games too. Playing needs an account, just like trading. Every round is
+like any trade, and a balance reset covers games too. Visitors can play right away as a guest (see below). Every round is
 logged on the portfolio's **Games** tab, with per-game stats (rounds, amount wagered, net) and a "Games this run"
 total on the dashboard. Realized PnL still counts market sells and settlements only. All randomness comes from the Web Crypto API with rejection
 sampling, so outcomes are unbiased.
@@ -171,7 +172,8 @@ sampling, so outcomes are unbiased.
 - **Roulette**: European single-zero wheel (37 pockets) with an animated SVG wheel and ball. Straight up pays
   35:1, split 17:1, street 11:1, corner 8:1, six line 5:1, dozens and columns 2:1, and red/black, odd/even and
   1-18/19-36 pay 1:1. Click a cell edge or corner for splits, streets, corners and six lines. Undo, clear, double
-  and rebet are built in. On phones the table turns upright so it fits without scrolling.
+  and rebet are built in, plus a quick spin switch. After a spin the winning bets stay lit until the next chip goes
+  down. On phones the table turns upright so it fits without scrolling.
 - **Blackjack**: six-deck shoe reshuffled with about a quarter left. Blackjack pays 3:2, wins 1:1, insurance
   2:1. The dealer peeks under an ace or ten and stands on all 17s, soft 17 included. Double on any first two
   cards, split pairs up to four hands (split aces get one card each). A hand in progress survives a reload.
@@ -203,7 +205,13 @@ sampling, so outcomes are unbiased.
 
 Dice, Limbo, Golden Sevens, Mines and Chicken Cross have **auto play**: a number of bets, raising the bet by a percentage after a win or a
 loss (one click sets up Martingale), and stops at a profit or loss you choose. Mines auto opens the same picked tiles
-every round; Chicken Cross auto cashes out at a lane you choose. Small synthesized sounds can be muted.
+every round; Chicken Cross auto cashes out at a lane you choose. Each game has its own small synthesized sounds,
+which can be muted.
+
+Every game also plays from the keyboard: Space bets, spins, drops or deals (and starts or stops auto play), and
+games with more moves add letter keys such as C to cash out or H and S to hit and stand. Each game's rules list its
+keys. Shortcuts pause while you type in a field or a dialog is open. With reduced motion turned on in the device
+settings, games skip the confetti, shakes and long animations.
 
 They are also **provably fair**, using the scheme Stake-style games publish: each result comes from
 `HMAC-SHA256(server seed, "<client seed>:<nonce>:<round>")`, four bytes per random number. You see the SHA-256 hash
