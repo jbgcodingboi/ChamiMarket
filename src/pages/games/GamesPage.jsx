@@ -109,21 +109,16 @@ function LimboArt() {
   )
 }
 
-function BoneyardArt() {
-  const reels = [['🤠', 'A'], ['K', '⭐', 'Q'], ['W', 'W', 'W'], ['🃏', 'J', '💀'], ['⚰️']]
+function SlotsArt() {
   return (
-    <div className="flex items-center gap-1" aria-hidden="true">
-      {reels.map((cells, r) => (
-        <div key={r} className={`flex flex-col gap-1 transition duration-500 ${r % 2 ? 'group-hover:-translate-y-1' : 'group-hover:translate-y-1'}`}>
-          {cells.map((c, i) => (
-            <span
-              key={i}
-              className={`flex size-7 items-center justify-center rounded-md text-sm font-black ${c === 'W' ? 'bg-amber-500/40 text-[9px] text-amber-200' : 'bg-black/40 text-white'}`}
-            >
-              {c === 'W' ? 'WILD' : c}
-            </span>
-          ))}
-        </div>
+    <div className="flex items-center gap-1.5 rounded-xl border-2 border-amber-400/70 bg-black/40 p-2 shadow-[0_0_24px_rgba(251,191,36,0.25)]" aria-hidden="true">
+      {['7️⃣', '💎', '7️⃣'].map((c, i) => (
+        <span
+          key={i}
+          className={`flex h-12 w-10 items-center justify-center rounded-lg bg-gradient-to-b from-white/15 to-white/5 text-2xl transition duration-500 ${i === 1 ? 'group-hover:-translate-y-1.5' : 'group-hover:translate-y-1.5'}`}
+        >
+          {c}
+        </span>
       ))}
     </div>
   )
@@ -187,12 +182,12 @@ const GAMES = [
     Art: LimboArt,
   },
   {
-    to: '/games/boneyard',
-    id: 'boneyard',
-    title: 'Boneyard',
-    blurb: 'A brutal western ways slot with Nudge and Split Wilds, two free spin modes and an R.I.P. rule. Huge swings.',
-    facts: ['Up to 300,000×', 'About 96% return', 'Provably fair'],
-    Art: BoneyardArt,
+    to: '/games/slots',
+    id: 'slots',
+    title: 'Golden Sevens',
+    blurb: 'A classic 5-reel slot with 20 lines, multiplier wilds and free spins that pay triple. One spin can land a huge win.',
+    facts: ['Up to 50,000×', 'About 96% return', 'Provably fair'],
+    Art: SlotsArt,
   },
 ]
 

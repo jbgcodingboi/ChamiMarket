@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useLegalStore } from '../../store/legalStore.js'
 
@@ -14,7 +14,8 @@ const Icon = () => (
 /**
  * Notice in the bottom left corner: an unofficial fan site with no
  * affiliation or endorsement. It shows in full for about five seconds on
- * each visit, then shrinks to a small pill that opens it again.
+ * each visit (or until the visitor clicks or types elsewhere, so it never
+ * sits over a game being played), then shrinks to a pill that opens it again.
  */
 export default function CornerNotice() {
   const accepted = useLegalStore((s) => s.accepted)
@@ -22,13 +23,24 @@ export default function CornerNotice() {
   const [open, setOpen] = useState(true)
   // Once the visitor opens or hides it themselves, it stops timing out.
   const [touched, setTouched] = useState(false)
+  const box = useRef(null)
   // The agreement pop-up says the same thing, so stay out of its way.
   const visible = accepted || pathname === '/terms'
 
   useEffect(() => {
     if (!visible || touched) return undefined
-    const t = setTimeout(() => setOpen(false), SHOW_MS)
-    return () => clearTimeout(t)
+    const shrink = () => setOpen(false)
+    const t = setTimeout(shrink, SHOW_MS)
+    const elsewhere = (e) => {
+      if (!box.current?.contains(e.target)) shrink()
+    }
+    window.addEventListener('pointerdown', elsewhere)
+    window.addEventListener('keydown', elsewhere)
+    return () => {
+      clearTimeout(t)
+      window.removeEventListener('pointerdown', elsewhere)
+      window.removeEventListener('keydown', elsewhere)
+    }
   }, [visible, touched])
 
   if (!visible) return null
@@ -38,7 +50,7 @@ export default function CornerNotice() {
   }
 
   return (
-    <aside aria-label="Site notice" className="fixed bottom-24 left-3 z-40 max-w-[calc(100vw-1.5rem)] sm:bottom-4 sm:left-4">
+    <aside ref={box} aria-label="Site notice" className="fixed bottom-24 left-3 z-40 max-w-[calc(100vw-1.5rem)] sm:bottom-4 sm:left-4">
       {open ? (
         <div className="w-80 max-w-full animate-fade-in rounded-xl border border-warn/40 bg-surface/95 p-3 text-xs shadow-xl shadow-black/50 backdrop-blur">
           <div className="flex items-start gap-2">

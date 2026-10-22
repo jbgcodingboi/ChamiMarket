@@ -1,0 +1,30 @@
+/* Dice: the track glow when a roll lands. Theme tokens come from index.css. */
+
+.dice-stage {
+  background:
+    radial-gradient(ellipse at 50% 0%, rgb(255 255 255 / 0.05), transparent 60%),
+    linear-gradient(180deg, #17171c, #111114);
+}
+.dice-zone {
+  transition: filter 200ms, opacity 200ms;
+}
+.dice-track-lit {
+  transition: box-shadow 200ms;
+}
+.dice-track-lit[data-win='true'] {
+  box-shadow: 0 0 22px rgb(47 191 113 / 0.4);
+}
+.dice-track-lit[data-win='true'] .dice-zone-win {
+  filter: brightness(1.2) saturate(1.1);
+}
+.dice-track-lit[data-win='true'] .dice-zone-lose,
+.dice-track-lit[data-win='false'] .dice-zone-win {
+  opacity: 0.55;
+}
+.dice-track-lit[data-win='false'] {
+  box-shadow: 0 0 18px rgb(245 112 60 / 0.3);
+}
+.dice-marker,
+.dice-marker-chip {
+  will-change: left;
+}

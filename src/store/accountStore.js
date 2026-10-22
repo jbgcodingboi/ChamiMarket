@@ -24,6 +24,8 @@ import { getOutcomePrice, marketPrice } from './prices.js'
 import { useResolutionStore } from './resolutionStore.js'
 
 const ACCOUNTS_KEY = 'accounts'
+/** Wait between balance resets (supabase/schema.sql reset_balance uses the same). */
+export const RESET_WAIT_MS = 5 * 60 * 1000
 const SESSION_KEY = 'session'
 export const portfolioKey = (userId) => `portfolio:${userId}`
 
@@ -484,10 +486,12 @@ export const useAccountStore = create((set, get) => ({
     const { portfolio } = get()
     if (!portfolio) return
     if (BACKEND_ENABLED) return backend.resetBalance().then((p) => get().adoptRemote(p))
-    // One reset a day, the same rule as the server's.
+    // A 5-minute wait between resets, the same rule as the server's.
     const last = Math.max(0, ...portfolio.history.filter((h) => h.type === 'reset').map((h) => h.ts))
-    if (Date.now() - last < 864e5) {
-      throw new Error(`You can reset once every 24 hours. Next reset after ${new Date(last + 864e5).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}.`)
+    const left = last + RESET_WAIT_MS - Date.now()
+    if (left > 0) {
+      const mins = Math.ceil(left / 60000)
+      throw new Error(`You can reset again in ${mins} minute${mins === 1 ? '' : 's'}.`)
     }
     get().commit(resetPortfolio(portfolio, Date.now(), randomId('reset')))
   },

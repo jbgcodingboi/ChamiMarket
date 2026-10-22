@@ -277,4 +277,4 @@ export const playLimbo = ({ amount, target }) => rpc('play_limbo', { p_amount: a
 export const crashStart = ({ amount, auto }) => rpc('crash_start', { p_amount: amount, p_auto: auto ?? null })
 export const crashState = () => rpc('crash_state')
 export const crashCashout = () => rpc('crash_cashout')
-export const playBoneyard = ({ amount }) => rpc('play_boneyard', { p_amount: amount })
+export const playSlots = ({ amount }) => rpc('play_slots', { p_amount: amount })

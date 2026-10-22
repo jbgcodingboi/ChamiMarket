@@ -115,6 +115,19 @@ export function place({ game, staked, returned, detail }) {
   return id
 }
 
+/**
+ * Holds the payout of a round whose stake was already taken with `debit`,
+ * until `finish(id)`. Returns null when the balance was reset since then.
+ */
+export function hold({ run, game, staked, returned, detail }) {
+  const p = current()
+  if (!p || (run !== undefined && run !== p.run)) return null
+  const g = gamesOf(p)
+  const id = newId('p')
+  commit({ ...p, games: { ...g, pending: [...g.pending, { id, run: p.run, game, staked: roundMoney(staked), returned, detail }] } })
+  return id
+}
+
 export function finish(id) {
   const p = current()
   const g = gamesOf(p)
