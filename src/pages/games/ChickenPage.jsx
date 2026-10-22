@@ -14,7 +14,7 @@ import { DIFFICULTIES, DIFFICULTY_IDS, laneMultipliers, RTP, survival } from '..
 import { chickenSounds } from '../../games/sounds/chicken.js'
 import { chickenApi } from '../../services/games/rounds.js'
 import { useAccountStore } from '../../store/accountStore.js'
-import { useChips } from '../../store/gameStore.js'
+import { finish, useChips } from '../../store/gameStore.js'
 import { toast } from '../../store/toastStore.js'
 import { roundMoney } from '../../utils/math.js'
 import { formatCurrency } from '../../utils/format.js'
@@ -236,6 +236,7 @@ export default function ChickenPage() {
         })
         setRound(r)
         await animateTo(r, 0, true)
+        finish(r.holdId)
         return { net: roundMoney(r.result.payout - amount) }
       },
     })

@@ -14,7 +14,7 @@ import { maxGems, multiplier, nextSafeChance, TILES } from '../../games/mines.js
 import { minesSounds } from '../../games/sounds/mines.js'
 import { minesApi } from '../../services/games/rounds.js'
 import { useAccountStore } from '../../store/accountStore.js'
-import { useChips } from '../../store/gameStore.js'
+import { finish, useChips } from '../../store/gameStore.js'
 import { toast } from '../../store/toastStore.js'
 import { roundMoney } from '../../utils/math.js'
 import { formatCurrency } from '../../utils/format.js'
@@ -204,6 +204,8 @@ export default function MinesPage() {
         const r = await minesApi.auto({ amount, mines, tiles: picked })
         setRound(r)
         announce(r, true)
+        // Pay out once the picks have turned over (well inside the gap before the next round).
+        setTimeout(() => finish(r.holdId), 420)
         return { net: roundMoney(r.result.payout - amount) }
       },
     })
