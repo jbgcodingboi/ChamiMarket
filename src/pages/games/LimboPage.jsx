@@ -4,21 +4,35 @@ import { AutoSettings } from '../../components/games/AutoBet.jsx'
 import BetAmount from '../../components/games/BetAmount.jsx'
 import FairnessButton from '../../components/games/FairnessPanel.jsx'
 import GameShell from '../../components/games/GameShell.jsx'
+import CrashChart from '../../components/games/limbo/CrashChart.jsx'
+import { easeOutCubic, tween, useSpaceToPlay } from '../../components/games/limbo/fx.js'
+import { Confetti, HistoryStrip, WinPop } from '../../components/games/limbo/GameFx.jsx'
 import ModeTabs from '../../components/games/ModeTabs.jsx'
 import SoundToggle from '../../components/games/SoundToggle.jsx'
 import { DEFAULT_AUTO, useAutoBet } from '../../components/games/useAutoBet.js'
 import { useDocumentTitle } from '../../hooks/useDocumentTitle.js'
-import { clampTarget, formatMult, MAX_RESULT, MIN_TARGET, multiplierAt, RTP, targetForChance, winChance } from '../../games/limbo.js'
-import { sounds } from '../../games/sound.js'
+import { clampTarget, formatMult, MAX_RESULT, MIN_TARGET, multiplierAt, RTP, targetForChance, timeTo, winChance } from '../../games/limbo.js'
+import { limboSounds } from '../../games/sounds/limbo.js'
 import { crashApi, limboDetail, playLimbo } from '../../services/games/limbo.js'
 import { useAccountStore } from '../../store/accountStore.js'
 import { finish, holdServerPortfolio, place, useChips } from '../../store/gameStore.js'
 import { toast } from '../../store/toastStore.js'
 import { formatCurrency } from '../../utils/format.js'
 import { roundMoney } from '../../utils/math.js'
+import './limbo.css'
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const cash = () => useAccountStore.getState().portfolio?.cash ?? 0
+const TARGET_PRESETS = [1.5, 2, 3, 5, 10, 100]
+/** Crash milestones that ping as the multiplier passes them. */
+const MILESTONES = [1.5, 2, 3, 5, 10, 20, 50, 100, 250, 500, 1000, 5000, 10000, 100000]
+/** After a round ends the Bet button waits this long, so a late Cash out tap cannot start a new round. */
+const REBET_GUARD_MS = 650
+
+/** Blurs a number box on Enter, which commits what was typed. */
+const commitOnEnter = (e) => {
+  if (e.key === 'Enter') e.currentTarget.blur()
+}
 
 function Rules({ crash }) {
   return (
@@ -39,6 +53,7 @@ function Rules({ crash }) {
         house edge). A 2× target wins 49.5% of the time, a 10× target 9.9%.
       </p>
       <p>Every result is provably fair: it comes from your seeds, and the Fairness panel recomputes past rounds.</p>
+      <p>Tip: press Space to {crash ? 'bet or cash out' : 'bet'} when you are not typing in a box.</p>
     </>
   )
 }
@@ -61,17 +76,29 @@ function GameSwitch({ crash }) {
   )
 }
 
-function Recent({ items }) {
+/** Game switch, fairness and sound. The two buttons shrink to icons on narrow phones (see limbo.css). */
+function Toolbar({ crash }) {
   return (
-    <div className="flex min-h-8 flex-wrap gap-1.5" aria-label="Recent results">
-      {items.map((r, i) => (
-        <span key={r.key} className={`rounded-md px-2 py-1 font-mono text-xs font-bold ${i === 0 ? 'animate-chip-pop' : ''} ${r.win ? 'bg-yes text-black' : 'bg-surface-3 text-muted'}`}>
-          {formatMult(r.value)}
-        </span>
-      ))}
+    <div className="flex items-center justify-between gap-2">
+      <GameSwitch crash={crash} />
+      <div className="pdl-tools flex shrink-0 gap-2">
+        <FairnessButton game={crash ? 'crash' : 'limbo'} />
+        <SoundToggle />
+      </div>
     </div>
   )
 }
+
+const historyItems = (list) =>
+  list.map((r) => ({
+    key: r.key,
+    text: formatMult(r.value),
+    title: r.cashout ? `Cashed out at ${formatMult(r.cashout)}, crashed at ${formatMult(r.value)}` : r.win ? 'Win' : 'Loss',
+    className: r.win ? (r.value >= 10 ? 'bg-warn text-black' : 'bg-yes text-black') : 'bg-surface-3 text-muted',
+  }))
+
+/** A big result number that shrinks to fit long values like 1,000,000.00×. */
+const numSize = (label, max = 6) => `min(${max}rem, ${Math.floor(140 / Math.max(5, label.length))}cqw)`
 
 // Limbo ---------------------------------------------------------------------------
 
@@ -85,14 +112,17 @@ function LimboGame() {
   const [auto, setAuto] = useState(DEFAULT_AUTO)
   const [shown, setShown] = useState(null)
   const [last, setLast] = useState(null)
+  const [rising, setRising] = useState(false)
   const [recent, setRecent] = useState([])
   const [busy, setBusy] = useState(false)
+  const [pop, setPop] = useState(null)
+  const [burst, setBurst] = useState(0)
   const runner = useAutoBet()
   const busyRef = useRef(false)
   const bet = roundMoney(Number(betText) || 0)
   const locked = busy || runner.running
 
-  /** Counts the number up to the result, then pays. */
+  /** Counts the number up to the result (faster for small results and in autobet), then pays. */
   const playOnce = async (amount, quick) => {
     if (!(amount >= 0.1)) throw new Error('Enter a bet of at least $0.10.')
     if (amount > cash() + 1e-9) throw new Error(`Your balance is ${formatCurrency(cash())}.`)
@@ -101,19 +131,27 @@ function LimboGame() {
     if (res.portfolio) holdServerPortfolio(res.portfolio)
     if (!id && !res.portfolio) throw new Error('Not enough chips.')
     setLast(null)
-    const steps = quick ? 6 : 14
-    for (let i = 1; i <= steps; i++) {
-      // Ease out from 1.00× towards the result.
-      const p = 1 - (1 - i / steps) ** 3
-      setShown(Math.max(1, Math.floor((1 + (res.result - 1) * p) * 100) / 100))
-      await sleep(quick ? 12 : 22)
-    }
+    setPop(null)
+    setRising(true)
+    const span = Math.log(res.result)
+    const ms = quick ? 100 : Math.min(1400, 420 + 240 * Math.log10(res.result))
+    await tween(ms, (p) => {
+      const e = easeOutCubic(p)
+      // Climbs in multiplicative steps so a 5,000× result races through the hundreds.
+      setShown(Math.max(1, Math.floor(Math.exp(span * e) * 100) / 100))
+      if (!quick && p < 1) limboSounds.tick(e)
+    })
     setShown(res.result)
+    setRising(false)
     setLast(res)
-    setRecent((r) => [{ value: res.result, win: res.win, key: `${res.nonce}-${Date.now()}` }, ...r].slice(0, 12))
-    if (res.win) sounds.gem()
-    else sounds.click()
+    setRecent((r) => [{ value: res.result, win: res.win, key: `${res.nonce}-${Date.now()}` }, ...r].slice(0, 20))
+    if (res.win) {
+      limboSounds.win(res.target)
+      setPop({ id: `${res.nonce}-${Date.now()}`, text: `+${formatCurrency(roundMoney(res.payout - amount))}` })
+      if (res.target >= 10) setBurst((b) => b + 1)
+    } else limboSounds.lose()
     if (id) finish(id)
+    if (!quick) await sleep(120)
     return { net: roundMoney(res.payout - amount) }
   }
 
@@ -136,66 +174,83 @@ function LimboGame() {
     runner.start({ settings: auto, baseBet: bet, play: (amount) => playOnce(amount, true), balance: cash, gapMs: 120 })
   }
 
+  const canBet = bet >= 0.1 && bet <= balance
+  const mainAction = () => {
+    if (mode === 'manual') {
+      if (!locked && canBet) betManual()
+    } else if (runner.running) runner.stop()
+    else if (canBet) startAuto()
+  }
+  useSpaceToPlay(mainAction)
+
   const chance = winChance(target)
+  const label = formatMult(shown ?? 1)
+  const crossed = rising && shown >= target
+  const tone = last ? (last.win ? 'win' : 'loss') : rising ? (crossed ? 'win' : 'rising') : 'idle'
+  const numColor = tone === 'win' ? 'text-yes' : tone === 'loss' ? 'text-no' : 'text-fg'
+
+  const mainButton =
+    mode === 'manual' ? (
+      <button type="button" className="btn btn-primary w-full py-3 text-base" onClick={betManual} disabled={locked || !canBet}>
+        {busy ? 'Drawing…' : 'Bet'}
+      </button>
+    ) : runner.running ? (
+      <button type="button" className="btn btn-ghost w-full py-3 text-base" onClick={runner.stop}>
+        Stop autobet
+      </button>
+    ) : (
+      <button type="button" className="btn btn-primary w-full py-3 text-base" onClick={startAuto} disabled={!canBet}>
+        Start autobet
+      </button>
+    )
+
   return (
     <div className="grid gap-4 md:grid-cols-[17rem_minmax(0,1fr)]">
-      <section className="card order-2 space-y-4 p-4 md:order-1" aria-label="Limbo controls">
+      <section className="card order-2 flex flex-col gap-4 p-4 md:order-1" aria-label="Limbo controls">
         <ModeTabs value={mode} onChange={setMode} disabled={runner.running} />
         <BetAmount value={betText} onChange={setBetText} balance={balance} disabled={locked} />
         <div>
           <p className="text-xs font-medium text-muted">Profit on win</p>
           <p className="mt-1.5 rounded-lg bg-surface-2 px-3 py-2 font-semibold text-yes tabular">{formatCurrency(roundMoney(bet * target - bet))}</p>
         </div>
-        {mode === 'manual' ? (
-          <button type="button" className="btn btn-primary w-full py-3 text-base" onClick={betManual} disabled={locked || !(bet >= 0.1) || bet > balance}>
-            {busy ? 'Drawing…' : 'Bet'}
-          </button>
-        ) : (
-          <AutoSettings settings={auto} onChange={setAuto} disabled={runner.running} stats={runner.stats} running={runner.running}>
-            {runner.running ? (
-              <button type="button" className="btn btn-ghost w-full py-3" onClick={runner.stop}>
-                Stop autobet
-              </button>
-            ) : (
-              <button type="button" className="btn btn-primary w-full py-3 text-base" onClick={startAuto} disabled={!(bet >= 0.1) || bet > balance}>
-                Start autobet
-              </button>
-            )}
-          </AutoSettings>
-        )}
+        <div className="max-md:order-first">{mainButton}</div>
+        {mode === 'auto' && <AutoSettings settings={auto} onChange={setAuto} disabled={runner.running} stats={runner.stats} running={runner.running} />}
       </section>
 
-      <section className="card order-1 space-y-5 p-4 sm:p-6 md:order-2" aria-label="Limbo">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <GameSwitch crash={false} />
-          <div className="flex shrink-0 gap-2">
-            <FairnessButton game="limbo" />
-            <SoundToggle />
+      <section className="card order-1 min-w-0 space-y-4 p-4 sm:p-6 md:order-2" aria-label="Limbo">
+        <Toolbar crash={false} />
+        <HistoryStrip items={historyItems(recent)} empty="Your results show up here." />
+        <div className="limbo-stage flex h-48 flex-col items-center justify-center rounded-2xl px-3 sm:h-64" data-tone={tone} style={{ containerType: 'inline-size' }}>
+          {last && <div key={`${last.nonce}-${last.result}`} className={`pointer-events-none absolute inset-0 rounded-2xl ${last.win ? 'fx-glow-win' : 'fx-glow-loss'}`} aria-hidden="true" />}
+          <div className="absolute top-4 flex h-8 items-center">
+            <WinPop pop={pop} />
           </div>
-        </div>
-        <Recent items={recent} />
-        <div className="felt flex h-56 flex-col items-center justify-center rounded-2xl sm:h-64" aria-live="polite">
-          <p
-            className={`font-mono text-6xl font-black tabular transition-colors sm:text-7xl ${last ? (last.win ? 'text-yes' : 'text-no') : 'text-fg'}`}
-            aria-label={last ? `Result ${formatMult(last.result)}, ${last.win ? 'win' : 'loss'}` : undefined}
-          >
-            {formatMult(shown ?? 1)}
+          <p className={`limbo-num font-mono font-black tabular transition-colors duration-150 ${numColor} ${last?.win ? 'fx-pop' : ''}`} style={{ '--size': numSize(label) }}>
+            {label}
           </p>
-          <p className="mt-2 text-sm text-white/70">Target {formatMult(target)}</p>
+          <p className="mt-3 text-sm text-white/70 tabular">
+            Target <span className="font-semibold text-white">{formatMult(target)}</span> · {chance}% chance
+          </p>
+          <Confetti burst={burst} />
         </div>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="block">
+        <p className="sr-only" aria-live="polite">
+          {last ? `Result ${formatMult(last.result)}, ${last.win ? `win, ${formatCurrency(last.payout)} returned` : 'loss'}` : ''}
+        </p>
+        <div className="grid grid-cols-2 gap-3">
+          <label className="block min-w-0">
             <span className="text-xs font-medium text-muted">Target multiplier</span>
             <div className="relative mt-1.5">
               <input
                 type="number"
+                inputMode="decimal"
                 min={MIN_TARGET}
                 max={MAX_RESULT}
                 step="0.01"
                 className="input pr-7 tabular"
-                value={targetText ?? target}
+                value={targetText ?? target.toFixed(2)}
                 disabled={locked}
                 onChange={(e) => setTargetText(e.target.value)}
+                onKeyDown={commitOnEnter}
                 onBlur={() => {
                   if (targetText !== null && Number(targetText) > 0) setTarget(clampTarget(targetText))
                   setTargetText(null)
@@ -204,11 +259,12 @@ function LimboGame() {
               <span className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-sm text-muted">×</span>
             </div>
           </label>
-          <label className="block">
+          <label className="block min-w-0">
             <span className="text-xs font-medium text-muted">Win chance</span>
             <div className="relative mt-1.5">
               <input
                 type="number"
+                inputMode="decimal"
                 min="0.0001"
                 max="98.0198"
                 step="0.01"
@@ -216,6 +272,7 @@ function LimboGame() {
                 value={chanceText ?? chance}
                 disabled={locked}
                 onChange={(e) => setChanceText(e.target.value)}
+                onKeyDown={commitOnEnter}
                 onBlur={() => {
                   const c = Number(chanceText)
                   if (c > 0) setTarget(targetForChance(Math.min(98.0198, c)))
@@ -226,62 +283,27 @@ function LimboGame() {
             </div>
           </label>
         </div>
+        <div className="grid grid-cols-6 gap-1.5" role="group" aria-label="Quick targets">
+          {TARGET_PRESETS.map((t) => (
+            <button
+              key={t}
+              type="button"
+              disabled={locked}
+              aria-pressed={target === t}
+              onClick={() => setTarget(t)}
+              aria-label={`Target ${formatMult(t)}`}
+              className={`rounded-lg px-1 py-1.5 font-mono text-xs font-bold tabular transition disabled:opacity-50 ${target === t ? 'bg-surface-3 text-fg ring-1 ring-line-strong' : 'bg-surface-2 text-muted hover:text-fg'}`}
+            >
+              {t}×
+            </button>
+          ))}
+        </div>
       </section>
     </div>
   )
 }
 
 // Crash ---------------------------------------------------------------------------
-
-const W = 600
-const H = 300
-
-/** The rising curve: time across, multiplier up, both axes stretching as it climbs. */
-function CrashChart({ elapsed, mult, phase, result }) {
-  const tMax = Math.max(8000, elapsed * 1.15)
-  const mMax = Math.max(2, mult * 1.15)
-  const x = (t) => 40 + (t / tMax) * (W - 60)
-  const y = (m) => H - 30 - ((m - 1) / (mMax - 1)) * (H - 60)
-  const points = []
-  for (let i = 0; i <= 60; i++) {
-    const t = (elapsed * i) / 60
-    points.push(`${x(t).toFixed(1)},${y(Math.min(mult, Math.exp(0.00006 * t))).toFixed(1)}`)
-  }
-  const crashed = phase === 'done' && !result?.win
-  const cashed = phase === 'done' && result?.win
-  const ticks = [1, 1 + (mMax - 1) / 3, 1 + (2 * (mMax - 1)) / 3, mMax]
-  return (
-    <div className="felt relative overflow-hidden rounded-2xl">
-      <svg viewBox={`0 0 ${W} ${H}`} className="block h-auto w-full" role="img" aria-label={`Multiplier ${formatMult(mult)}`}>
-        {ticks.map((m) => (
-          <g key={m}>
-            <line x1="40" x2={W - 20} y1={y(m)} y2={y(m)} stroke="rgba(255,255,255,0.08)" />
-            <text x="34" y={y(m) + 4} textAnchor="end" fontSize="11" fill="rgba(255,255,255,0.45)">
-              {m.toFixed(m < 10 ? 1 : 0)}×
-            </text>
-          </g>
-        ))}
-        {elapsed > 0 && (
-          <>
-            <polygon points={`${x(0)},${y(1)} ${points.join(' ')} ${x(elapsed)},${y(1)}`} fill={crashed ? 'rgba(239,68,68,0.15)' : 'rgba(34,197,94,0.15)'} />
-            <polyline points={points.join(' ')} fill="none" stroke={crashed ? '#ef4444' : '#22c55e'} strokeWidth="4" strokeLinecap="round" />
-            <circle cx={x(elapsed)} cy={y(mult)} r="7" fill={crashed ? '#ef4444' : '#fbbf24'} />
-          </>
-        )}
-      </svg>
-      <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center" aria-live="polite">
-        <p className={`font-mono text-5xl font-black tabular sm:text-6xl ${crashed ? 'text-no' : cashed ? 'text-yes' : 'text-white'}`}>{formatMult(mult)}</p>
-        {crashed && <p className="mt-1 text-sm font-semibold text-no">Crashed</p>}
-        {cashed && (
-          <p className="mt-1 text-sm font-semibold text-yes">
-            Cashed out at {formatMult(result.cashout)} · crashed at {formatMult(result.crash)}
-          </p>
-        )}
-        {phase === 'idle' && <p className="mt-1 text-sm text-white/70">Place a bet to launch</p>}
-      </div>
-    </div>
-  )
-}
 
 function CrashGame() {
   const balance = useChips()
@@ -291,22 +313,32 @@ function CrashGame() {
   const [elapsed, setElapsed] = useState(0)
   const [recent, setRecent] = useState([])
   const [busy, setBusy] = useState(false)
+  const [cooling, setCooling] = useState(false)
+  const [celebrate, setCelebrate] = useState(0)
+  // Whether the shown round ended while watching (a round restored after a reload skips the crash effects).
+  const [live, setLive] = useState(false)
   const sync = useRef({ elapsed: 0, at: 0 })
   const phase = useRef('idle')
+  const milestone = useRef(0)
   const bet = roundMoney(Number(betText) || 0)
   const autoAt = Number(autoText) >= MIN_TARGET ? clampTarget(autoText) : null
+  const autoInvalid = autoText !== '' && autoAt === null
   const playing = round.phase === 'playing'
 
   const take = (r) => {
     sync.current = { elapsed: r.elapsed ?? 0, at: performance.now() }
     if (r.phase === 'done' && phase.current === 'playing') {
-      if (r.result.win) sounds.win()
-      else sounds.lose()
-      setRecent((list) => [{ value: r.result.crash, win: r.result.win, key: `${r.nonce}-${Date.now()}` }, ...list].slice(0, 12))
+      if (r.result.win) {
+        limboSounds.cashout(r.result.cashout)
+        if (r.result.cashout >= 5) setCelebrate((c) => c + 1)
+      } else limboSounds.crash()
+      setRecent((list) => [{ value: r.result.crash, win: r.result.win, cashout: r.result.cashout, key: `${r.nonce}-${Date.now()}` }, ...list].slice(0, 20))
+      setLive(true)
+      setCooling(true)
+      setTimeout(() => setCooling(false), REBET_GUARD_MS)
     }
     phase.current = r.phase
     setRound(r)
-    if (r.phase === 'done') setElapsed(Math.max(0, r.elapsed ?? 0))
   }
 
   // Picks up a round left running (after a reload, say).
@@ -319,9 +351,17 @@ function CrashGame() {
     if (!playing) return undefined
     let raf
     const frame = () => {
-      setElapsed(sync.current.elapsed + (performance.now() - sync.current.at))
+      const t = sync.current.elapsed + (performance.now() - sync.current.at)
+      setElapsed(t)
+      const m = multiplierAt(t)
+      while (milestone.current < MILESTONES.length && m >= MILESTONES[milestone.current]) {
+        limboSounds.milestone(milestone.current)
+        milestone.current++
+      }
       raf = requestAnimationFrame(frame)
     }
+    milestone.current = MILESTONES.findIndex((m) => m > multiplierAt(sync.current.elapsed))
+    if (milestone.current < 0) milestone.current = MILESTONES.length
     raf = requestAnimationFrame(frame)
     let running = true
     const poll = async () => {
@@ -350,7 +390,8 @@ function CrashGame() {
       if (!(bet >= 0.1)) throw new Error('Enter a bet of at least $0.10.')
       if (bet > cash() + 1e-9) throw new Error(`Your balance is ${formatCurrency(cash())}.`)
       const r = await crashApi.start({ amount: bet, auto: autoAt })
-      sounds.click()
+      limboSounds.launch()
+      setLive(false)
       setElapsed(0)
       take(r)
     } catch (err) {
@@ -373,15 +414,25 @@ function CrashGame() {
 
   const done = round.phase === 'done'
   const mult = done ? (round.result.win ? round.result.cashout : round.result.crash) : playing ? Math.min(multiplierAt(elapsed), round.auto ?? Infinity) : 1
+  // A finished round is drawn up to its final multiplier, however long ago it ended.
+  const shownElapsed = done ? timeTo(mult) : playing ? elapsed : 0
+  const canBet = !busy && !cooling && bet >= 0.1 && bet <= balance
+  useSpaceToPlay(() => {
+    if (playing) {
+      if (!busy) cashout()
+    } else if (canBet) launch()
+  })
+
   return (
     <div className="grid gap-4 md:grid-cols-[17rem_minmax(0,1fr)]">
-      <section className="card order-2 space-y-4 p-4 md:order-1" aria-label="Crash controls">
+      <section className="card order-2 flex flex-col gap-4 p-4 md:order-1" aria-label="Crash controls">
         <BetAmount value={betText} onChange={setBetText} balance={balance} disabled={playing || busy} />
         <label className="block">
           <span className="text-xs font-medium text-muted">Auto cash-out (optional)</span>
           <div className="relative mt-1.5">
             <input
               type="number"
+              inputMode="decimal"
               min={MIN_TARGET}
               max={MAX_RESULT}
               step="0.01"
@@ -389,35 +440,46 @@ function CrashGame() {
               className="input pr-7 tabular"
               value={autoText}
               disabled={playing || busy}
+              aria-invalid={autoInvalid || undefined}
               onChange={(e) => setAutoText(e.target.value)}
+              onKeyDown={commitOnEnter}
             />
             <span className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-sm text-muted">×</span>
           </div>
         </label>
-        {playing ? (
-          <button type="button" className="btn w-full bg-yes py-3 text-base font-bold text-black hover:brightness-110" onClick={cashout} disabled={busy}>
-            Cash out {formatCurrency(roundMoney(round.bet * Math.max(1, mult)))}
+        <div className="max-md:order-first">
+          {/* One button that changes role, so focus stays on it from Bet to Cash out. */}
+          <button
+            type="button"
+            className={`btn w-full py-3 text-base ${playing ? 'bg-yes font-bold text-black hover:brightness-110' : 'btn-primary'}`}
+            onClick={playing ? cashout : launch}
+            disabled={playing ? busy : !canBet}
+          >
+            {playing ? `Cash out ${formatCurrency(roundMoney(round.bet * Math.max(1, mult)))}` : busy ? 'Launching…' : 'Bet'}
           </button>
-        ) : (
-          <button type="button" className="btn btn-primary w-full py-3 text-base" onClick={launch} disabled={busy || !(bet >= 0.1) || bet > balance}>
-            {busy ? 'Launching…' : 'Bet'}
-          </button>
-        )}
-        <p className="text-xs leading-relaxed text-subtle">
-          {autoAt ? `Cashes out on its own at ${formatMult(autoAt)}, a ${winChance(autoAt)}% chance.` : 'Cash out by hand before it crashes.'}
+        </div>
+        <p className={`text-xs leading-relaxed ${autoInvalid ? 'text-no' : 'text-subtle'}`}>
+          {autoInvalid
+            ? `Auto cash-out needs ${formatMult(MIN_TARGET)} or more; it is off for now.`
+            : autoAt
+              ? `Cashes out on its own at ${formatMult(autoAt)}, a ${winChance(autoAt)}% chance.`
+              : 'Cash out by hand before it crashes.'}
         </p>
       </section>
 
-      <section className="card order-1 space-y-5 p-4 sm:p-6 md:order-2" aria-label="Crash">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <GameSwitch crash />
-          <div className="flex shrink-0 gap-2">
-            <FairnessButton game="crash" />
-            <SoundToggle />
-          </div>
-        </div>
-        <Recent items={recent} />
-        <CrashChart elapsed={done ? elapsed : playing ? elapsed : 0} mult={mult} phase={round.phase} result={round.result} />
+      <section className="card order-1 min-w-0 space-y-4 p-4 sm:p-6 md:order-2" aria-label="Crash">
+        <Toolbar crash />
+        <HistoryStrip items={historyItems(recent)} label="Recent crash points" empty="Crash points show up here." />
+        <CrashChart elapsed={shownElapsed} mult={mult} phase={round.phase} result={round.result} bet={round.bet ?? bet} celebrate={celebrate} live={live} />
+        <p className="sr-only" aria-live="polite">
+          {done
+            ? round.result.win
+              ? `Cashed out at ${formatMult(round.result.cashout)}, ${formatCurrency(round.result.payout)} returned. It crashed at ${formatMult(round.result.crash)}.`
+              : `Crashed at ${formatMult(round.result.crash)}.`
+            : playing
+              ? 'Round started.'
+              : ''}
+        </p>
       </section>
     </div>
   )
