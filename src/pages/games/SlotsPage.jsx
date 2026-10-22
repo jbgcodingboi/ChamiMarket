@@ -5,6 +5,7 @@ import FairnessButton from '../../components/games/FairnessPanel.jsx'
 import GameShell from '../../components/games/GameShell.jsx'
 import ModeTabs from '../../components/games/ModeTabs.jsx'
 import SoundToggle from '../../components/games/SoundToggle.jsx'
+import { useSpaceToPlay } from '../../components/games/limbo/fx.js'
 import { DEFAULT_AUTO, useAutoBet } from '../../components/games/useAutoBet.js'
 import { useDocumentTitle } from '../../hooks/useDocumentTitle.js'
 import { CAP_X, FREE_SPIN_MULT, LINE_COUNT, LINES, MAX_FREE_SPINS, PAY, PAYING, SCATTER_PAY, SCATTER_SPINS, SYMBOL_NAME } from '../../games/slots.js'
@@ -295,24 +296,11 @@ export default function SlotsPage() {
     }
   }
 
-  // Space spins (unless typing or a dialog is open).
-  const spinRef = useRef(null)
-  useEffect(() => {
-    spinRef.current = spinManual
-  })
-  useEffect(() => {
-    const onKey = (e) => {
-      if (e.code !== 'Space' || e.repeat) return
-      const t = e.target
-      if (t?.closest?.('input, textarea, select, button, [role="dialog"], [contenteditable="true"]')) return
-      e.preventDefault()
-      if (mode === 'manual' && !runner.running) spinRef.current?.()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [mode, runner.running])
+  // Space spins (unless typing, on another control, or a dialog is open).
+  useSpaceToPlay(spinManual, mode === 'manual' && !runner.running)
 
   const startAuto = () => {
+    if (busyRef.current) return
     if (!(bet >= 0.1)) return toast({ tone: 'error', title: 'Enter a bet of at least $0.10' })
     runner.start({ settings: auto, baseBet: bet, play: (amount) => playOnce(amount, true), balance: cash, gapMs: 120 })
   }
@@ -333,7 +321,7 @@ export default function SlotsPage() {
     <GameShell game="slots" title="Golden Sevens" subtitle={`A classic 5-reel slot with 20 lines and multiplier wilds. Up to ${CAP_X.toLocaleString('en-US')}× your bet.`} rules={<Rules />}>
       <div className="grid gap-4 md:grid-cols-[17rem_minmax(0,1fr)]">
         <section className="card order-2 space-y-4 p-4 md:order-1" aria-label="Slot controls">
-          <ModeTabs value={mode} onChange={setMode} disabled={runner.running} />
+          <ModeTabs value={mode} onChange={setMode} disabled={locked} />
           <BetAmount value={betText} onChange={setBetText} balance={balance} disabled={locked} />
           <p className="text-xs text-muted tabular">
             {LINE_COUNT} lines × {formatCurrency(bet / LINE_COUNT)}
@@ -358,7 +346,7 @@ export default function SlotsPage() {
                   Stop autoplay
                 </button>
               ) : (
-                <button type="button" className="btn btn-primary w-full py-3 text-base" onClick={startAuto} disabled={!(bet >= 0.1) || bet > balance}>
+                <button type="button" className="btn btn-primary w-full py-3 text-base" onClick={startAuto} disabled={busy || !(bet >= 0.1) || bet > balance}>
                   Start autoplay
                 </button>
               )}

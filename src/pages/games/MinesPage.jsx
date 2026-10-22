@@ -192,6 +192,7 @@ export default function MinesPage() {
   }
 
   const startAuto = () => {
+    if (busyRef.current) return
     if (!(bet >= 0.1)) return toast({ tone: 'error', title: 'Enter a bet of at least $0.10' })
     if (!picked.length) return toast({ tone: 'info', title: 'Pick tiles first', description: 'Click the tiles you want to open every round.' })
     setResult(null)
@@ -325,7 +326,7 @@ export default function MinesPage() {
     <GameShell game="mines" title="Mines" subtitle="Find gems, dodge mines, and cash out before your luck runs out." rules={<Rules />}>
       <div className="grid gap-4 md:grid-cols-[17rem_minmax(0,1fr)]">
         <section className="card order-2 space-y-4 p-4 md:order-1" aria-label="Mines controls">
-          <ModeTabs value={mode} onChange={changeMode} disabled={runner.running || playing} />
+          <ModeTabs value={mode} onChange={changeMode} disabled={locked || playing} />
           <BetAmount value={betText} onChange={setBetText} balance={balance} disabled={locked || playing} />
           <div>
             <div className="grid grid-cols-2 gap-2">

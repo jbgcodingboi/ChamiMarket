@@ -221,6 +221,7 @@ export default function ChickenPage() {
   }
 
   const startAuto = () => {
+    if (busyRef.current) return
     if (!(bet >= 0.1)) return toast({ tone: 'error', title: 'Enter a bet of at least $0.10' })
     runner.start({
       settings: auto,
@@ -349,7 +350,7 @@ export default function ChickenPage() {
     <GameShell game="chicken" title="Chicken Cross" subtitle="Hop lane by lane, grow your multiplier, and cash out before the traffic gets you." rules={<Rules />}>
       <div className="grid gap-4 md:grid-cols-[17rem_minmax(0,1fr)]">
         <section className="card order-2 flex flex-col gap-4 p-4 md:order-1" aria-label="Chicken Cross controls">
-          <ModeTabs value={mode} onChange={changeMode} disabled={runner.running || playing} />
+          <ModeTabs value={mode} onChange={changeMode} disabled={locked || playing} />
           <BetAmount value={betText} onChange={setBetText} balance={balance} disabled={locked || playing} />
           <div>
             <p id="chicken-difficulty" className="text-xs font-medium text-muted">

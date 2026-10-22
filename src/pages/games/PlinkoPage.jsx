@@ -79,6 +79,9 @@ export default function PlinkoPage() {
   const board = useRef(null)
   const auto = useRef(null)
   const queued = useRef([])
+  // Backend mode: a drop waiting on the server, and a Stop pressed meanwhile.
+  const requesting = useRef(false)
+  const stopSoon = useRef(false)
   const [betText, setBetText] = useState('10')
   const bet = roundMoney(Number(betText) || 0)
   const [rows, setRows] = useState(16)
@@ -112,26 +115,38 @@ export default function PlinkoPage() {
   /** Backend mode: the server plays every ball at once; they are then dropped here one by one. */
   const startRemote = async () => {
     setDropping(true)
+    requesting.current = true
+    stopSoon.current = false
     let res
     try {
       res = await playPlinko({ amount: bet, rows, risk, balls: count })
     } catch (err) {
       setDropping(false)
       return toast({ tone: 'error', title: 'Drop not accepted', description: err.message })
+    } finally {
+      requesting.current = false
     }
     const queue = [...res.balls]
+    // Stop was pressed while the server played: show every ball now.
+    if (stopSoon.current) {
+      for (const ball of queue) dropOne(ball)
+      holdServerPortfolio(res.portfolio)
+      return setDropping(false)
+    }
     queued.current = queue
+    clearInterval(auto.current)
+    let iv = null
     const next = () => {
       const ball = queue.shift()
       if (ball) dropOne(ball)
       if (!queue.length) {
-        clearInterval(auto.current)
+        clearInterval(iv)
         setDropping(false)
       }
     }
     next()
     holdServerPortfolio(res.portfolio)
-    if (queue.length) auto.current = setInterval(next, AUTO_GAP_MS)
+    if (queue.length) iv = auto.current = setInterval(next, AUTO_GAP_MS)
   }
 
   const start = () => {
@@ -163,6 +178,10 @@ export default function PlinkoPage() {
   }
 
   const stop = () => {
+    if (requesting.current) {
+      stopSoon.current = true
+      return
+    }
     clearInterval(auto.current)
     setDropping(false)
     // Backend mode: the server already played the rest, so drop them all now.

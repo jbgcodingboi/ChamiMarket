@@ -197,6 +197,15 @@ function Table({ owner }) {
     }
   }, [remote, run])
 
+  // Backend mode: leaving while the dealer's cards turn over still shows the server's settled balance.
+  useEffect(
+    () => () => {
+      if (heldPortfolio.current) useAccountStore.getState().adoptRemote(heldPortfolio.current)
+      heldPortfolio.current = null
+    },
+    [],
+  )
+
   // When a round ends, turn the dealer's cards over one at a time, then pay out.
   useEffect(() => {
     if (g.phase !== 'done' || settled) return undefined
@@ -334,8 +343,8 @@ function Table({ owner }) {
     s: () => canHit && stand(),
     d: () => (canDouble && canHit ? doubleDown() : betting && bet ? addChip(bet) : undefined),
     p: () => canSplit && canHit && splitHand(),
-    i: () => g.phase === 'insurance' && !working && balance >= insuranceCost && insure(true),
-    n: () => g.phase === 'insurance' && !working && insure(false),
+    i: () => g.phase === 'insurance' && !dealing && !working && balance >= insuranceCost && insure(true),
+    n: () => g.phase === 'insurance' && !dealing && !working && insure(false),
     backspace: () => betting && clearBet(),
     ...Object.fromEntries(CHIP_VALUES.map((v, i) => [String(i + 1), () => betting && !working && addChip(v)])),
   })

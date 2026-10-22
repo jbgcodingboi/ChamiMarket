@@ -267,8 +267,9 @@ export default function RoulettePage() {
       returned,
       detail: `${result} ${colorName(result)} · ${list.length} bet${list.length === 1 ? '' : 's'}`,
     })
-    if (!id) return toast({ tone: 'error', title: 'Not enough chips' })
+    // The server has already played and paid a spin, so take its portfolio and show the spin either way.
     if (server) holdServerPortfolio(server.portfolio)
+    if (!id && !server) return toast({ tone: 'error', title: 'Not enough chips' })
     setOutcome(null)
     setSettledBets(null)
     setRound({ key: (round?.key ?? 0) + 1, result, id, staked: total, returned, played, done: false })

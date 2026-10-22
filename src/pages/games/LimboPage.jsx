@@ -170,6 +170,7 @@ function LimboGame() {
   }
 
   const startAuto = () => {
+    if (busyRef.current) return
     if (!(bet >= 0.1)) return toast({ tone: 'error', title: 'Enter a bet of at least $0.10' })
     runner.start({ settings: auto, baseBet: bet, play: (amount) => playOnce(amount, true), balance: cash, gapMs: 120 })
   }
@@ -199,7 +200,7 @@ function LimboGame() {
         Stop autobet
       </button>
     ) : (
-      <button type="button" className="btn btn-primary w-full py-3 text-base" onClick={startAuto} disabled={!canBet}>
+      <button type="button" className="btn btn-primary w-full py-3 text-base" onClick={startAuto} disabled={busy || !canBet}>
         Start autobet
       </button>
     )
@@ -207,7 +208,7 @@ function LimboGame() {
   return (
     <div className="grid gap-4 md:grid-cols-[17rem_minmax(0,1fr)]">
       <section className="card order-2 flex flex-col gap-4 p-4 md:order-1" aria-label="Limbo controls">
-        <ModeTabs value={mode} onChange={setMode} disabled={runner.running} />
+        <ModeTabs value={mode} onChange={setMode} disabled={locked} />
         <BetAmount value={betText} onChange={setBetText} balance={balance} disabled={locked} />
         <div>
           <p className="text-xs font-medium text-muted">Profit on win</p>
