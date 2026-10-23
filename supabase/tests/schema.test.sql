@@ -694,7 +694,7 @@ select pg_temp.ok(private.dispatch_sync() is null, 'an empty vault still does no
 insert into vault.decrypted_secrets values ('github_dispatch_token', 'ghp_test');
 select private.dispatch_sync() as dispatched \gset
 select pg_temp.ok(:dispatched = 42
-  and (select url from net.calls) = 'https://api.github.com/repos/jbgcodingboi/ChamiMarket/actions/workflows/sync-backend.yml/dispatches'
+  and (select url from net.calls) = 'https://api.github.com/repositories/1421390192/actions/workflows/sync-backend.yml/dispatches'
   and (select body ->> 'ref' from net.calls) = 'main'
   and (select headers ->> 'Authorization' from net.calls) = 'Bearer ghp_test', 'with a token it asks GitHub to run the sync on main');
 select pg_temp.expect_error($$set role authenticated; select private.dispatch_sync()$$, '%permission denied%');

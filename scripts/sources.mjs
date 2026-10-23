@@ -6,7 +6,7 @@
 import { buildMarkets, buildResults, CALENDAR_ENDPOINT, calendarMonths, parseCalendar } from '../src/services/chaminade.js'
 import { parseYahooChart, STOCKS } from '../src/services/quick/stocks.js'
 
-export const USER_AGENT = 'Mozilla/5.0 (compatible; ChamiMarketSnapshot/1.0; +https://github.com/jbgcodingboi/ChamiMarket)'
+export const USER_AGENT = 'Mozilla/5.0 (compatible; ChamiMarketSnapshot/1.0)'
 
 /** A GET that gives up after 15 seconds, so one slow host can't stall a whole run. */
 const get = (url) => fetch(url, { headers: { Accept: 'application/json', 'User-Agent': USER_AGENT }, signal: AbortSignal.timeout(15000) })

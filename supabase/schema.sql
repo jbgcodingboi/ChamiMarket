@@ -2482,7 +2482,8 @@ begin
   end;
   if coalesce(v_token, '') = '' then return null; end if;
   select net.http_post(
-    url := 'https://api.github.com/repos/jbgcodingboi/ChamiMarket/actions/workflows/sync-backend.yml/dispatches',
+    -- The repository's permanent id, so the call keeps working if the repository is renamed.
+    url := 'https://api.github.com/repositories/1421390192/actions/workflows/sync-backend.yml/dispatches',
     body := '{"ref": "main"}'::jsonb,
     headers := jsonb_build_object(
       'Authorization', 'Bearer ' || v_token,
