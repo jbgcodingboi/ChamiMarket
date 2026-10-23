@@ -49,7 +49,7 @@ function Rules() {
 }
 
 export default function MinesPage() {
-  useDocumentTitle('Mines')
+  useDocumentTitle('Games')
   const balance = useChips()
   const [betText, setBetText] = useState('10')
   const [mines, setMines] = useState(3)

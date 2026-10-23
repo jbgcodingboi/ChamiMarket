@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { formatCurrency, formatDateTime, formatSignedCurrency, pnlTone } from '../../utils/format.js'
 import EmptyState from '../ui/EmptyState.jsx'
 import { DiceIcon } from '../ui/Icons.jsx'
-import { GAME_NAME } from '../../games/names.js'
+import { GAME_NAME, gamePath } from '../../games/names.js'
 
 const PAGE = 50
 
@@ -44,7 +44,7 @@ export default function GameHistory({ history }) {
             <tr key={h.id} className="border-b border-line last:border-0">
               <td className="px-4 py-3 whitespace-nowrap text-muted">{formatDateTime(h.ts)}</td>
               <td className="px-2 py-3 font-medium">
-                <Link to={`/games/${h.game}`} className="hover:underline">
+                <Link to={gamePath(h.game)} className="hover:underline">
                   {GAME_NAME[h.game] ?? h.game}
                 </Link>
               </td>

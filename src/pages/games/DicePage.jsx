@@ -52,7 +52,7 @@ function Rules() {
 }
 
 export default function DicePage() {
-  useDocumentTitle('Dice')
+  useDocumentTitle('Games')
   const balance = useChips()
   const [betText, setBetText] = useState('10')
   const [target, setTarget] = useState(50.5)

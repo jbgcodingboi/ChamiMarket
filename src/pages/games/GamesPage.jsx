@@ -5,7 +5,7 @@ import { useNow } from '../../hooks/useNow.js'
 import { useAccountStore } from '../../store/accountStore.js'
 import { useGames } from '../../store/gameStore.js'
 import { formatCurrency, formatRelativeTime, formatSignedCurrency, pnlTone } from '../../utils/format.js'
-import { GAME_NAME } from '../../games/names.js'
+import { GAME_NAME, GAME_PATH } from '../../games/names.js'
 import GameFeed from '../../components/games/GameFeed.jsx'
 
 function RouletteArt() {
@@ -126,7 +126,7 @@ function SlotsArt() {
 
 const GAMES = [
   {
-    to: '/games/roulette',
+    to: GAME_PATH.roulette,
     id: 'roulette',
     title: 'Roulette',
     blurb: 'European single-zero wheel. Bet numbers, splits, corners, dozens or red and black.',
@@ -134,7 +134,7 @@ const GAMES = [
     Art: RouletteArt,
   },
   {
-    to: '/games/blackjack',
+    to: GAME_PATH.blackjack,
     id: 'blackjack',
     title: 'Blackjack',
     blurb: 'Six-deck shoe with doubling, splitting and insurance. Beat the dealer to 21.',
@@ -142,7 +142,7 @@ const GAMES = [
     Art: BlackjackArt,
   },
   {
-    to: '/games/plinko',
+    to: GAME_PATH.plinko,
     id: 'plinko',
     title: 'Plinko',
     blurb: 'Drop balls through a pin board. Choose 8, 12 or 16 rows and low, medium or high risk.',
@@ -150,7 +150,7 @@ const GAMES = [
     Art: PlinkoArt,
   },
   {
-    to: '/games/dice',
+    to: GAME_PATH.dice,
     id: 'dice',
     title: 'Dice',
     blurb: 'Roll over or under a target you set with a slider. Any win chance from 2% to 98%, with autobet.',
@@ -158,7 +158,7 @@ const GAMES = [
     Art: DiceArt,
   },
   {
-    to: '/games/mines',
+    to: GAME_PATH.mines,
     id: 'mines',
     title: 'Mines',
     blurb: 'Open tiles on a 5×5 grid, collect gems and cash out before you hit one of the mines you chose.',
@@ -166,7 +166,7 @@ const GAMES = [
     Art: MinesArt,
   },
   {
-    to: '/games/chicken',
+    to: GAME_PATH.chicken,
     id: 'chicken',
     title: 'Chicken Cross',
     blurb: 'Hop a chicken across lanes of traffic. Every lane raises the multiplier; cash out before it gets hit.',
@@ -174,7 +174,7 @@ const GAMES = [
     Art: ChickenArt,
   },
   {
-    to: '/games/limbo',
+    to: GAME_PATH.limbo,
     id: 'limbo',
     title: 'Limbo',
     blurb: 'Pick a target and hope the draw reaches it, or watch the multiplier climb and cash out before it crashes.',
@@ -182,7 +182,7 @@ const GAMES = [
     Art: LimboArt,
   },
   {
-    to: '/games/slots',
+    to: GAME_PATH.slots,
     id: 'slots',
     title: 'Golden Sevens',
     blurb: 'A classic 5-reel slot with 20 lines, multiplier wilds and free spins that pay triple. One spin can land a huge win.',

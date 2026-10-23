@@ -162,7 +162,7 @@ function History({ recent, spinCount }) {
 }
 
 export default function RoulettePage() {
-  useDocumentTitle('Roulette')
+  useDocumentTitle('Games')
   const balance = useChips()
   const [chip, setChip] = useState(25)
   const [stack, setStack] = useState([])
