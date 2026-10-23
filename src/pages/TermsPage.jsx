@@ -34,7 +34,7 @@ const SECTIONS = [
     id: 'own-risk',
     title: 'Play at your own risk',
     body: [
-      'You use the site, including its casino style games, entirely at your own risk. Chaminade High School and many other schools and institutions prohibit gambling and games of chance, and their rules can apply on their grounds, devices, and networks even when no real money is involved.',
+      'You use the site, including its casino style games, at your own risk. Chaminade High School and many other schools and institutions don’t allow gambling or games of chance, and those rules can apply on their grounds, devices, and networks even when no real money is involved.',
       'Everything here is play money with no cash value, but the games still look and work like games of chance. It is your responsibility to know and follow the rules of your school, workplace, and anywhere else you use the site. We are not responsible for any discipline or other consequences that come from using it.',
     ],
   },
@@ -160,7 +160,7 @@ export default function TermsPage() {
         <p className="mt-1 text-muted">
           Chami Market is an unofficial fan site. It is not affiliated with, endorsed by, or associated with Chaminade High School or any other organization
           named on it. Everything uses play money with no cash value. Nothing here is advice, and the site is provided as is. Play at your own risk:
-          Chaminade High School and other schools and institutions prohibit gambling and games of chance, so follow their rules.
+          Chaminade High School and many other schools don’t allow gambling or games of chance, so follow their rules.
         </p>
       </div>
 
