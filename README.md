@@ -314,6 +314,9 @@ browser. Connecting a free [Supabase](https://supabase.com) project turns Chami 
   record the accepted version in the account's metadata.
 - **A true leaderboard**: every player, valued on the server, on the Overall, Markets and Games boards.
 - **A live feed** of everyone's trades and game results over Supabase Realtime.
+- **Privacy**: the feeds and profiles show only usernames. Nobody can read which account a feed row belongs to,
+  when an account was made, or anyone's email, and password recovery answers the same way whether or not an
+  account exists.
 - **Cheat-proof money.** The browser can only read; it can't write any table. Every buy, sell, reset, payout and
   game round runs in a database function (`supabase/schema.sql`) that locks the account, prices trades from the
   server's own data (Polymarket trades also check the live API), rejects a trade if the price the player saw is
