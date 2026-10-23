@@ -14,6 +14,7 @@ import CornerNotice from './components/legal/CornerNotice.jsx'
 import DeleteAccountModal from './components/DeleteAccountModal.jsx'
 import FeedbackTab from './components/FeedbackTab.jsx'
 import TermsGate from './components/legal/TermsGate.jsx'
+import { GAME_PATH } from './games/names.js'
 
 const HomePage = lazy(() => import('./pages/HomePage.jsx'))
 const MarketPage = lazy(() => import('./pages/MarketPage.jsx'))
@@ -42,17 +43,19 @@ function AppRoutes() {
           <Route path="/portfolio" element={<PortfolioPage />} />
           <Route path="/leaderboard" element={<LeaderboardPage />} />
           <Route path="/games" element={<GamesPage />} />
-          <Route path="/games/roulette" element={<RoulettePage />} />
-          <Route path="/games/blackjack" element={<BlackjackPage />} />
-          <Route path="/games/plinko" element={<PlinkoPage />} />
-          <Route path="/games/dice" element={<DicePage />} />
-          <Route path="/games/mines" element={<MinesPage />} />
-          <Route path="/games/chicken" element={<ChickenPage />} />
-          <Route path="/games/limbo" element={<LimboPage key="limbo" />} />
-          <Route path="/games/crash" element={<LimboPage key="crash" crash />} />
-          <Route path="/games/slots" element={<SlotsPage />} />
-          {/* Boneyard was replaced by Golden Sevens; old links land there. */}
-          <Route path="/games/boneyard" element={<Navigate to="/games/slots" replace />} />
+          <Route path={GAME_PATH.roulette} element={<RoulettePage />} />
+          <Route path={GAME_PATH.blackjack} element={<BlackjackPage />} />
+          <Route path={GAME_PATH.plinko} element={<PlinkoPage />} />
+          <Route path={GAME_PATH.dice} element={<DicePage />} />
+          <Route path={GAME_PATH.mines} element={<MinesPage />} />
+          <Route path={GAME_PATH.chicken} element={<ChickenPage />} />
+          <Route path={GAME_PATH.limbo} element={<LimboPage key="limbo" />} />
+          <Route path={GAME_PATH.crash} element={<LimboPage key="crash" crash />} />
+          <Route path={GAME_PATH.slots} element={<SlotsPage />} />
+          {/* Old addresses named after each game (and the retired Boneyard) still land on the right page. */}
+          {Object.entries(GAME_PATH).map(([game, to]) => (
+            <Route key={game} path={`/games/${game}`} element={<Navigate to={to} replace />} />
+          ))}
           <Route path="/terms" element={<TermsPage />} />
           <Route path="*" element={<NotFoundPage />} />
         </Routes>

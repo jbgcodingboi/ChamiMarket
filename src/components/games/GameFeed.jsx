@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { GAME_NAME } from '../../games/names.js'
+import { GAME_NAME, gamePath } from '../../games/names.js'
 import { useNow } from '../../hooks/useNow.js'
 import { BACKEND_ENABLED } from '../../services/backend/config.js'
 import { useFeedStore } from '../../store/feedStore.js'
@@ -15,7 +15,7 @@ function GameLine({ entry, now }) {
         <span className="text-muted">{won ? 'won' : entry.net < 0 ? 'lost' : 'broke even'}</span>{' '}
         {entry.net !== 0 && <span className={`font-semibold tabular ${won ? 'text-yes' : 'text-no'}`}>{formatCurrency(Math.abs(entry.net))}</span>}{' '}
         <span className="text-muted">at</span>{' '}
-        <Link to={`/games/${entry.game}`} className="text-primary-300 hover:underline">
+        <Link to={gamePath(entry.game)} className="text-primary-300 hover:underline">
           {GAME_NAME[entry.game] ?? entry.game}
         </Link>
       </p>

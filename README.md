@@ -208,6 +208,10 @@ loss (one click sets up Martingale), and stops at a profit or loss you choose. M
 every round; Chicken Cross auto cashes out at a lane you choose. Each game has its own small synthesized sounds,
 which can be muted.
 
+Game pages have plain addresses: `#/games/spin` (Roulette), `21` (Blackjack), `balls` (Plinko), `roll` (Dice),
+`gems` (Mines), `cross` (Chicken Cross), `target` (Limbo), `rocket` (Crash) and `reels` (Golden Sevens), set in
+`src/games/names.js`. The old addresses named after each game still work and redirect.
+
 Every game also plays from the keyboard: Space bets, spins, drops or deals (and starts or stops auto play), and
 games with more moves add letter keys such as C to cash out or H and S to hit and stand. Each game's rules list its
 keys. Shortcuts pause while you type in a field or a dialog is open. With reduced motion turned on in the device
