@@ -1427,8 +1427,9 @@ language plpgsql volatile set search_path = '' as $$
 declare detail text; dealer text;
 begin
   if s ->> 'phase' <> 'done' then return; end if;
-  dealer := case when (s -> 'result' ->> 'dealerBlackjack')::boolean then 'blackjack' else (private.bj_value(s -> 'dealer')).total::text end;
-  select string_agg(case h ->> 'outcome' when 'blackjack' then 'Blackjack' when 'win' then 'Win' when 'push' then 'Push'
+  -- The game goes by "21" on the site, so a blackjack reads as a natural 21.
+  dealer := case when (s -> 'result' ->> 'dealerBlackjack')::boolean then 'natural 21' else (private.bj_value(s -> 'dealer')).total::text end;
+  select string_agg(case h ->> 'outcome' when 'blackjack' then 'Natural 21' when 'win' then 'Win' when 'push' then 'Push'
       when 'bust' then 'Bust' else 'Lose' end, ', ' order by ord)
     into detail from jsonb_array_elements(s -> 'hands') with ordinality as t(h, ord);
   detail := detail || ' vs dealer ' || dealer;

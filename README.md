@@ -211,7 +211,8 @@ which can be muted.
 Game pages have plain addresses: `#/games/spin` (Roulette), `21` (Blackjack), `balls` (Plinko), `roll` (Dice),
 `gems` (Mines), `cross` (Chicken Cross), `target` (Limbo), `rocket` (Crash) and `reels` (Golden Sevens), set in
 `src/games/names.js`. The old addresses named after each game still work and redirect. Every game page's
-browser tab reads "Games · Chami Market", so tabs and history don't name the game.
+browser tab reads "Games · Chami Market", so tabs and history don't name the game. On the site itself Roulette and Blackjack go
+by the plain names **Spin** and **21**.
 
 Every game also plays from the keyboard: Space bets, spins, drops or deals (and starts or stops auto play), and
 games with more moves add letter keys such as C to cash out or H and S to hit and stand. Each game's rules list its
@@ -307,7 +308,8 @@ browser. Connecting a free [Supabase](https://supabase.com) project turns Chami 
   decrypts a saved run log. Limits: 5 an hour per player, 20 an hour from all guests, 1,000 a day, 2,000 unread.
 - **Removing a player as the site owner**: Actions tab › "Admin - delete a player" › Run workflow, with their
   username and DELETE. It deletes their login with the service role key and everything else cascades with it.
-- **Terms**: a first-visit pop-up with just a link to the full Terms of Use and one "I understand and agree" button
+- **Terms**: a first-visit pop-up with a link to the full Terms of Use, a "play at your own risk" warning (schools
+  including Chaminade prohibit gambling and games of chance, even with play money) and one "I understand and agree" button
   (`#/terms`). Agreement is stored per browser and versioned by `TERMS_VERSION` in `src/config.js`, and sign-ups
   record the accepted version in the account's metadata.
 - **A true leaderboard**: every player, valued on the server, on the Overall, Markets and Games boards.

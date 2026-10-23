@@ -124,7 +124,7 @@ export default function RouletteWheel({ result, spinKey, onDone, settled = false
   const showResult = settled && result !== null && result !== undefined
 
   return (
-    <svg viewBox="-112 -112 224 224" className={`aspect-square w-full ${className}`} role="img" aria-label={showResult ? `Roulette wheel, the ball landed on ${result}` : 'Roulette wheel'}>
+    <svg viewBox="-112 -112 224 224" className={`aspect-square w-full ${className}`} role="img" aria-label={showResult ? `Wheel, the ball landed on ${result}` : 'Wheel'}>
       <defs>
         <radialGradient id="rw-wood" cx="50%" cy="35%" r="65%">
           <stop offset="0%" stopColor="#8a5428" />

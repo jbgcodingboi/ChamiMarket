@@ -59,7 +59,7 @@ export default function CornerNotice() {
               <p className="font-semibold text-fg">Unofficial fan site</p>
               <p className="mt-1 leading-relaxed text-muted">
                 Not affiliated with, endorsed by or associated with Chaminade High School, or any team, league, company or data source used on this site.
-                Play money only.
+                Play money only, and play at your own risk: schools including Chaminade prohibit gambling and games of chance.
               </p>
               <Link to="/terms" className="mt-1.5 inline-block font-medium text-primary-300 hover:underline">
                 Terms and disclaimers

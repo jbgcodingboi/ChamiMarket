@@ -1,7 +1,8 @@
 /** Display names for every game, keyed by the id used in round records. */
 export const GAME_NAME = {
-  roulette: 'Roulette',
-  blackjack: 'Blackjack',
+  // Roulette and Blackjack go by plain names on the site.
+  roulette: 'Spin',
+  blackjack: '21',
   plinko: 'Plinko',
   dice: 'Dice',
   mines: 'Mines',
