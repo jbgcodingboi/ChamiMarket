@@ -2,8 +2,6 @@ import { Link } from 'react-router-dom'
 import { TERMS_EFFECTIVE } from '../config.js'
 import { useDocumentTitle } from '../hooks/useDocumentTitle.js'
 
-const REPO = 'https://github.com/jbgcodingboi/ChamiMarket'
-
 /** Sections of the Terms. Each body is a list of paragraphs. */
 const SECTIONS = [
   {
@@ -129,7 +127,7 @@ const SECTIONS = [
     id: 'law',
     title: 'Governing law',
     body: [
-      'These Terms are governed by the laws of the State of New York, without regard to conflict of law rules. Any dispute will be handled in the state or federal courts located in Nassau County, New York, unless the law where you live requires otherwise.',
+      'These Terms are governed by the laws of the State of New York, without regard to conflict of law rules. Any dispute will be handled in the state or federal courts located in New York, unless the law where you live requires otherwise.',
     ],
   },
   {
@@ -142,7 +140,7 @@ const SECTIONS = [
   {
     id: 'contact',
     title: 'Contact',
-    body: ['For questions, corrections, or takedown requests, use the Feedback tab on the side of the page or open an issue on the project’s GitHub page.'],
+    body: ['For questions, corrections, or takedown requests, use the Feedback tab on the side of the page. Messages go privately to the site owner.'],
   },
 ]
 
@@ -185,11 +183,6 @@ export default function TermsPage() {
                 {para}
               </p>
             ))}
-            {s.id === 'contact' && (
-              <a href={`${REPO}/issues`} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block text-sm text-primary-300 hover:underline">
-                github.com/jbgcodingboi/ChamiMarket/issues
-              </a>
-            )}
           </li>
         ))}
       </ol>
