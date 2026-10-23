@@ -242,7 +242,8 @@ const toFeedEntry = (r) => ({
 /** Newest activity rows: market trades for kind 'markets', game results for 'games'. */
 export async function recentActivity(limit = 100, kind = 'markets') {
   const sb = await client()
-  const query = sb.from('activity').select('*')
+  // Only the columns the feed is allowed to read (not which account a row belongs to).
+  const query = sb.from('activity').select('id,username,kind,market_id,market_title,side,side_label,shares,price,amount,game,net,detail,created_at')
   const filtered = kind === 'games' ? query.eq('kind', 'game') : query.in('kind', ['buy', 'sell'])
   const { data, error } = await filtered.order('created_at', { ascending: false }).limit(limit)
   if (error) throw new BackendError(friendly(error))

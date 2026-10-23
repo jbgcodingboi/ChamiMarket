@@ -295,6 +295,14 @@ drop policy if exists "results are public" on public.resolutions;
 create policy "results are public" on public.resolutions for select using (true);
 drop policy if exists "activity is public" on public.activity;
 create policy "activity is public" on public.activity for select using (true);
+-- The feeds show a username, never which account a row belongs to: a guest's rows would otherwise
+-- link to the name they pick later, and ids plus exact times would trace one player across the feed.
+-- Profiles likewise show only a name, not when the account was made. (Realtime sends only these columns too.)
+revoke select on public.activity from anon, authenticated;
+grant select (id, username, kind, market_id, market_title, side, side_label, shares, price, amount, game, net, detail, created_at)
+  on public.activity to anon, authenticated;
+revoke select on public.profiles from anon, authenticated;
+grant select (id, username, is_guest) on public.profiles to anon, authenticated;
 
 -- Live feed over Supabase Realtime.
 do $$ begin
@@ -707,7 +715,7 @@ $$;
 create or replace function private.check_username(p_name text, p_self uuid) returns void
 language plpgsql stable set search_path = '' as $$
 begin
-  -- Same rule as the sign-up form, so direct API sign-ups can't make look-alikes such as j.bg or jbg-.
+  -- Same rule as the sign-up form, so direct API sign-ups can't make look-alikes such as a.lex or alex-.
   if coalesce(p_name, '') !~ '^[A-Za-z0-9_]{3,20}$' then
     raise exception 'Pick a username of 3 to 20 letters, numbers or underscores.';
   end if;
@@ -839,7 +847,8 @@ create or replace function public.reset_password_with_code(p_email text, p_code 
 language plpgsql volatile security definer set search_path = '' as $$
 declare v_user uuid; rc public.recovery_codes; v_code text := upper(regexp_replace(coalesce(p_code, ''), '[^A-Za-z0-9]', '', 'g'));
   alphabet text := 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; fresh text := ''; i int;
-  no_match constant text := 'That username and recovery code don''t match.';
+  -- One answer for every failure, so nobody can tell whether an account (or a locked one) exists.
+  no_match constant text := 'That username and recovery code don''t match. After 5 wrong codes, wait 15 minutes.';
 begin
   if length(coalesce(p_new_password, '')) < 8 or length(p_new_password) > 72 then
     return jsonb_build_object('error', 'Passwords need 8 to 72 characters.');
@@ -856,7 +865,8 @@ begin
     return jsonb_build_object('error', no_match);
   end if;
   if rc.locked_until is not null and rc.locked_until > now() then
-    return jsonb_build_object('error', 'Too many wrong codes. Try again in 15 minutes.');
+    perform extensions.crypt('timing', extensions.gen_salt('bf', 10));
+    return jsonb_build_object('error', no_match);
   end if;
   -- An expired lock starts the count over, so one guess every 15 minutes can't keep it locked forever.
   if rc.locked_until is not null then

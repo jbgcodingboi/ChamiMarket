@@ -421,6 +421,10 @@ reset role;
 set role anon;
 select set_config('request.jwt.claim.sub', '', false);
 select pg_temp.ok((select count(*) from public.activity where kind = 'buy') = 2, 'anyone can read the activity feed');
+select pg_temp.expect_error($$select user_id from public.activity$$, '%permission denied%');
+select pg_temp.expect_error($$select created_at from public.profiles$$, '%permission denied%');
+select pg_temp.ok((select count(*) from public.activity a join public.profiles p on p.username = a.username) >= 0,
+  'the feed and profiles still show usernames, but not which account a row belongs to or when it signed up');
 select pg_temp.ok((select count(*) from public.portfolios) = 0, 'guests can''t read portfolios');
 select pg_temp.expect_error($$select public.buy('123', 'yes', 10, 0.5)$$, '%permission denied%');
 select pg_temp.ok(public.username_available('carol') and not public.username_available('Alice'), 'username availability is case-insensitive');
@@ -446,8 +450,11 @@ select pg_temp.ok(public.reset_password_with_code('nobody@example.com', 'AAAA-BB
 do $$ declare i int; begin
   for i in 1..4 loop perform public.reset_password_with_code('bob@example.com', 'AAAA-BBBB-CCCC', 'another password'); end loop;
 end $$;
-select pg_temp.ok(public.reset_password_with_code('bob@example.com', :'code2', 'another password') ->> 'error' like '%Too many%',
+select pg_temp.ok(public.reset_password_with_code('bob@example.com', :'code2', 'another password') ->> 'error' like '%don''t match%',
   'five wrong codes lock recovery, even for the right code');
+select pg_temp.ok(public.reset_password_with_code('bob@example.com', 'AAAA-BBBB-CCCC', 'another password')
+  = public.reset_password_with_code('nobody@example.com', 'AAAA-BBBB-CCCC', 'another password'),
+  'a locked account answers exactly like one that does not exist');
 reset role;
 update public.recovery_codes set locked_until = now() - interval '1 minute' where user_id = :'bob';
 set role anon;
