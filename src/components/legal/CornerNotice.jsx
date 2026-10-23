@@ -52,12 +52,16 @@ export default function CornerNotice() {
   return (
     <aside ref={box} aria-label="Site notice" className="fixed bottom-24 left-3 z-40 max-w-[calc(100vw-1.5rem)] sm:bottom-4 sm:left-4">
       {open ? (
-        <div className="w-80 max-w-full animate-fade-in rounded-xl border border-warn/40 bg-surface/95 p-3 text-xs shadow-xl shadow-black/50 backdrop-blur">
+        <div className="w-72 max-w-full animate-fade-in rounded-xl sm:w-80 border border-warn/40 bg-surface/95 p-3 text-xs shadow-xl shadow-black/50 backdrop-blur">
           <div className="flex items-start gap-2">
             <Icon />
             <div className="min-w-0 flex-1">
               <p className="font-semibold text-fg">Unofficial fan site</p>
-              <p className="mt-1 leading-relaxed text-muted">
+              {/* Phones get the short version, so the notice covers less of the screen. */}
+              <p className="mt-1 leading-relaxed text-muted sm:hidden">
+                Not linked to Chaminade High School or anyone else. Play money only, at your own risk: schools prohibit games of chance.
+              </p>
+              <p className="mt-1 hidden leading-relaxed text-muted sm:block">
                 Not affiliated with, endorsed by or associated with Chaminade High School, or any team, league, company or data source used on this site.
                 Play money only, and play at your own risk: schools including Chaminade prohibit gambling and games of chance.
               </p>
