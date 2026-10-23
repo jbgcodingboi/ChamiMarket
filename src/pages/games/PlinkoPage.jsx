@@ -74,7 +74,7 @@ function Rules({ rows, risk }) {
 }
 
 export default function PlinkoPage() {
-  useDocumentTitle('Plinko')
+  useDocumentTitle('Games')
   const balance = useChips()
   const board = useRef(null)
   const auto = useRef(null)

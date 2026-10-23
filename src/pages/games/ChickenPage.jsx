@@ -61,7 +61,7 @@ function Rules() {
 }
 
 export default function ChickenPage() {
-  useDocumentTitle('Chicken Cross')
+  useDocumentTitle('Games')
   const balance = useChips()
   const [betText, setBetText] = useState('10')
   const [difficulty, setDifficulty] = useState('medium')

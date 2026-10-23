@@ -488,7 +488,7 @@ function CrashGame() {
 }
 
 export default function LimboPage({ crash = false }) {
-  useDocumentTitle(crash ? 'Crash' : 'Limbo')
+  useDocumentTitle('Games')
   return (
     <GameShell
       game={crash ? 'crash' : 'limbo'}

@@ -210,7 +210,8 @@ which can be muted.
 
 Game pages have plain addresses: `#/games/spin` (Roulette), `21` (Blackjack), `balls` (Plinko), `roll` (Dice),
 `gems` (Mines), `cross` (Chicken Cross), `target` (Limbo), `rocket` (Crash) and `reels` (Golden Sevens), set in
-`src/games/names.js`. The old addresses named after each game still work and redirect.
+`src/games/names.js`. The old addresses named after each game still work and redirect. Every game page's
+browser tab reads "Games · Chami Market", so tabs and history don't name the game.
 
 Every game also plays from the keyboard: Space bets, spins, drops or deals (and starts or stops auto play), and
 games with more moves add letter keys such as C to cash out or H and S to hit and stand. Each game's rules list its
