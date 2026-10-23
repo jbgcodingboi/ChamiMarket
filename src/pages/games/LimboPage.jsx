@@ -12,6 +12,7 @@ import SoundToggle from '../../components/games/SoundToggle.jsx'
 import { DEFAULT_AUTO, useAutoBet } from '../../components/games/useAutoBet.js'
 import { useDocumentTitle } from '../../hooks/useDocumentTitle.js'
 import { clampTarget, formatMult, MAX_RESULT, MIN_TARGET, multiplierAt, RTP, targetForChance, timeTo, winChance } from '../../games/limbo.js'
+import { GAME_PATH } from '../../games/names.js'
 import { limboSounds } from '../../games/sounds/limbo.js'
 import { crashApi, limboDetail, playLimbo } from '../../services/games/limbo.js'
 import { useAccountStore } from '../../store/accountStore.js'
@@ -70,8 +71,8 @@ function GameSwitch({ crash }) {
   )
   return (
     <nav aria-label="Game" className="inline-flex gap-1 rounded-xl bg-surface-2 p-1">
-      {item('/games/limbo', 'Limbo', !crash)}
-      {item('/games/crash', 'Crash', crash)}
+      {item(GAME_PATH.limbo, 'Limbo', !crash)}
+      {item(GAME_PATH.crash, 'Crash', crash)}
     </nav>
   )
 }
@@ -487,7 +488,7 @@ function CrashGame() {
 }
 
 export default function LimboPage({ crash = false }) {
-  useDocumentTitle(crash ? 'Crash' : 'Limbo')
+  useDocumentTitle('Games')
   return (
     <GameShell
       game={crash ? 'crash' : 'limbo'}

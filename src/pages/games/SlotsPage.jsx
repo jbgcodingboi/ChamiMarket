@@ -186,7 +186,7 @@ function Rules() {
 const BLANK = { grid: [FILLER.slice(0, 3), FILLER.slice(3, 6), FILLER.slice(6, 9), FILLER.slice(1, 4), FILLER.slice(4, 7)], mults: Array.from({ length: 5 }, () => [1, 1, 1]), wins: [] }
 
 export default function SlotsPage() {
-  useDocumentTitle('Golden Sevens')
+  useDocumentTitle('Games')
   const balance = useChips()
   const [betText, setBetText] = useState('1')
   const [mode, setMode] = useState('manual')

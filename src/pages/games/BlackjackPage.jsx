@@ -535,7 +535,7 @@ function Table({ owner }) {
 }
 
 export default function BlackjackPage() {
-  useDocumentTitle('Blackjack')
+  useDocumentTitle('Games')
   const owner = useAccountStore((s) => s.user?.id ?? null)
   return (
     <GameShell game="blackjack" title="Blackjack" subtitle="Six decks. Blackjack pays 3:2, dealer stands on soft 17." rules={<Rules />}>
