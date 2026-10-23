@@ -309,7 +309,7 @@ browser. Connecting a free [Supabase](https://supabase.com) project turns Chami 
 - **Removing a player as the site owner**: Actions tab › "Admin - delete a player" › Run workflow, with their
   username and DELETE. It deletes their login with the service role key and everything else cascades with it.
 - **Terms**: a first-visit pop-up with a link to the full Terms of Use, a "play at your own risk" warning (schools
-  including Chaminade prohibit gambling and games of chance, even with play money) and one "I understand and agree" button
+  like Chaminade don't allow gambling or games of chance, even with play money) and one "I understand and agree" button
   (`#/terms`). Agreement is stored per browser and versioned by `TERMS_VERSION` in `src/config.js`, and sign-ups
   record the accepted version in the account's metadata.
 - **A true leaderboard**: every player, valued on the server, on the Overall, Markets and Games boards.

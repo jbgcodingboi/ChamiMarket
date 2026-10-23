@@ -26,8 +26,8 @@ export default function TermsGate() {
         before you continue. You only need to agree once.
       </p>
       <p className="mt-3 rounded-lg bg-surface-2/70 px-3 py-2.5 text-xs leading-relaxed text-muted sm:text-sm">
-        <span className="font-medium text-fg">Play at your own risk.</span> Chaminade High School and other schools and institutions prohibit gambling and
-        games of chance. Everything here is play money with no cash value, but it is up to you to follow their rules.
+        <span className="font-medium text-fg">Heads up, play at your own risk.</span> Chaminade and a lot of other schools don’t allow gambling or games of
+        chance, even just for fun. Everything here is play money, but it’s on you to follow your school’s rules.
       </p>
       <button ref={agreeRef} type="button" className="btn btn-primary mt-4 w-full py-2.5" onClick={accept}>
         I understand and agree
