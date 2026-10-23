@@ -5,6 +5,7 @@ import RouletteTable from '../../components/games/roulette/RouletteTable.jsx'
 import RouletteWheel from '../../components/games/roulette/RouletteWheel.jsx'
 import { kbdClass, useHotkeys } from '../../components/games/roulette/useHotkeys.js'
 import { useDocumentTitle } from '../../hooks/useDocumentTitle.js'
+import { GAME_NAME } from '../../games/names.js'
 import { colorOf, ODDS, spin, totalReturn } from '../../games/roulette.js'
 import { rouletteSounds } from '../../games/sounds/roulette.js'
 import { playRoulette } from '../../services/backend/api.js'
@@ -55,7 +56,7 @@ function Rules() {
   return (
     <>
       <p>
-        European roulette: a single zero and 37 pockets, so every number has a 1 in 37 chance. Place chips, then spin. A winning bet returns your stake
+        A single-zero wheel with 37 pockets, so every number has a 1 in 37 chance. Place chips, then spin. A winning bet returns your stake
         plus the odds below. Even-money bets lose on zero. The house edge is 2.7% on every bet.
       </p>
       <p>
@@ -319,7 +320,7 @@ export default function RoulettePage() {
       : ''
 
   return (
-    <GameShell game="roulette" title="Roulette" subtitle="European single-zero wheel. 35:1 straight up, 1:1 on red or black." rules={<Rules />}>
+    <GameShell game="roulette" title={GAME_NAME.roulette} subtitle="A single-zero wheel. 35:1 straight up, 1:1 on red or black." rules={<Rules />}>
       <section className="card relative overflow-hidden" aria-label="Wheel">
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_30%_40%,rgb(232_177_58/0.07),transparent_60%)]" aria-hidden="true" />
         <div className="relative grid items-center gap-4 p-4 sm:grid-cols-[minmax(0,1fr)_16rem] sm:gap-6 sm:p-6">

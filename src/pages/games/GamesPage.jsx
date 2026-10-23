@@ -128,17 +128,17 @@ const GAMES = [
   {
     to: GAME_PATH.roulette,
     id: 'roulette',
-    title: 'Roulette',
-    blurb: 'European single-zero wheel. Bet numbers, splits, corners, dozens or red and black.',
+    title: GAME_NAME.roulette,
+    blurb: 'A single-zero wheel with 37 numbers. Bet numbers, splits, corners, dozens or red and black.',
     facts: ['35:1 straight up', '1:1 red/black'],
     Art: RouletteArt,
   },
   {
     to: GAME_PATH.blackjack,
     id: 'blackjack',
-    title: 'Blackjack',
+    title: GAME_NAME.blackjack,
     blurb: 'Six-deck shoe with doubling, splitting and insurance. Beat the dealer to 21.',
-    facts: ['3:2 blackjack', 'Dealer stands on soft 17', 'Insurance 2:1'],
+    facts: ['3:2 natural 21', 'Dealer stands on soft 17', 'Insurance 2:1'],
     Art: BlackjackArt,
   },
   {

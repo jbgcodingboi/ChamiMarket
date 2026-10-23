@@ -5,6 +5,7 @@ import PlayingCard from '../../components/games/PlayingCard.jsx'
 import { kbdClass, useHotkeys } from '../../components/games/roulette/useHotkeys.js'
 import { useDocumentTitle } from '../../hooks/useDocumentTitle.js'
 import * as bj from '../../games/blackjack.js'
+import { GAME_NAME } from '../../games/names.js'
 import { useAccountStore } from '../../store/accountStore.js'
 import { blackjackAct, blackjackDeal, blackjackState } from '../../services/backend/api.js'
 import { BACKEND_ENABLED } from '../../services/backend/config.js'
@@ -33,7 +34,7 @@ const isTable = (t) =>
 const freshTable = () => ({ game: bj.initialState(), round: 0, settled: true, lastBet: 25 })
 
 const OUTCOME = {
-  blackjack: ['Blackjack!', 'bg-warn text-black'],
+  blackjack: ['Natural 21!', 'bg-warn text-black'],
   win: ['Win', 'bg-yes text-black'],
   push: ['Push', 'bg-surface-3 text-fg'],
   lose: ['Lose', 'bg-no text-black'],
@@ -113,12 +114,12 @@ function Rules() {
     <>
       <p>Six decks, reshuffled when about a quarter of the shoe is left. Get closer to 21 than the dealer without going over.</p>
       <ul className="list-disc space-y-1 pl-5">
-        <li>Blackjack (an ace and a ten-value card as your first two cards) pays 3:2.</li>
+        <li>A natural 21 (an ace and a ten-value card as your first two cards) pays 3:2.</li>
         <li>A regular win pays 1:1. Ties push and your bet comes back.</li>
         <li>The dealer hits 16 or less and stands on every 17, soft 17 included.</li>
-        <li>When the dealer shows an ace you can take insurance for half your bet. It pays 2:1 if the dealer has blackjack.</li>
-        <li>The dealer checks for blackjack under an ace or ten-value card before you act, so you only lose your original bet to a dealer blackjack.</li>
-        <li>Double down on any first two cards. Split pairs up to four hands. Split aces get one card each, and 21 after a split counts as 21, not blackjack.</li>
+        <li>When the dealer shows an ace you can take insurance for half your bet. It pays 2:1 if the dealer has a natural 21.</li>
+        <li>The dealer checks for a natural 21 under an ace or ten-value card before you act, so you only lose your original bet to one.</li>
+        <li>Double down on any first two cards. Split pairs up to four hands. Split aces get one card each, and 21 after a split counts as 21, not a natural.</li>
       </ul>
       <p>
         Keyboard: <kbd>Space</kbd> deals, <kbd>H</kbd> hits, <kbd>S</kbd> stands, <kbd>D</kbd> doubles, <kbd>P</kbd> splits, <kbd>I</kbd> or <kbd>N</kbd> answers
@@ -223,7 +224,7 @@ function Table({ owner }) {
       }
       const { result, hands } = g
       const outcomes = hands.map((h) => OUTCOME[h.outcome][0].replace('!', '')).join(', ')
-      settle({ run: table.run, game: 'blackjack', staked: result.staked, returned: result.returned, detail: `${outcomes} vs dealer ${bj.isBlackjack(g.dealer) ? 'blackjack' : bj.handValue(g.dealer).total}` })
+      settle({ run: table.run, game: 'blackjack', staked: result.staked, returned: result.returned, detail: `${outcomes} vs dealer ${bj.isBlackjack(g.dealer) ? 'natural 21' : bj.handValue(g.dealer).total}` })
       setTable((t) => ({ ...t, settled: true }))
     }
     const tick = () => {
@@ -352,10 +353,10 @@ function Table({ owner }) {
   const outcomeText = (() => {
     if (!(g.phase === 'done' && settled && g.result)) return null
     const natural = g.hands.some((h) => h.outcome === 'blackjack')
-    if (net > 0) return { title: natural ? 'Blackjack!' : 'You win', amount: `+${formatCurrency(net)}`, tone: natural ? 'text-warn' : 'text-yes' }
+    if (net > 0) return { title: natural ? 'Natural 21!' : 'You win', amount: `+${formatCurrency(net)}`, tone: natural ? 'text-warn' : 'text-yes' }
     if (net < 0) {
       const allBust = g.hands.every((h) => h.outcome === 'bust')
-      return { title: allBust ? 'Bust' : g.result.dealerBlackjack ? 'Dealer blackjack' : 'Dealer wins', amount: `−${formatCurrency(-net)}`, tone: 'text-no' }
+      return { title: allBust ? 'Bust' : g.result.dealerBlackjack ? 'Dealer natural 21' : 'Dealer wins', amount: `−${formatCurrency(-net)}`, tone: 'text-no' }
     }
     return { title: 'Push', amount: 'Bet returned', tone: 'text-white' }
   })()
@@ -367,7 +368,7 @@ function Table({ owner }) {
 
   return (
     <>
-      <section className="felt bj-table relative overflow-hidden rounded-3xl border-[6px] border-[#4a2c14] p-3 sm:p-6" aria-label="Blackjack table">
+      <section className="felt bj-table relative overflow-hidden rounded-3xl border-[6px] border-[#4a2c14] p-3 sm:p-6" aria-label="Card table">
         <div className="bj-arc" aria-hidden="true" />
         <ChipBurst burst={burst} />
         <div className="relative flex items-start justify-between gap-3 text-[11px] text-white/70">
@@ -391,7 +392,7 @@ function Table({ owner }) {
         </div>
 
         <div className="pointer-events-none relative my-1 text-center text-[10px] font-semibold tracking-[0.2em] text-warn/80 uppercase sm:my-2 sm:text-[11px]">
-          Blackjack pays 3 to 2
+          Natural 21 pays 3 to 2
           <span className="block text-[9px] font-medium tracking-[0.15em] text-white/50 sm:text-[10px]">Dealer stands on all 17s · Insurance pays 2 to 1</span>
         </div>
 
@@ -538,7 +539,7 @@ export default function BlackjackPage() {
   useDocumentTitle('Games')
   const owner = useAccountStore((s) => s.user?.id ?? null)
   return (
-    <GameShell game="blackjack" title="Blackjack" subtitle="Six decks. Blackjack pays 3:2, dealer stands on soft 17." rules={<Rules />}>
+    <GameShell game="blackjack" title={GAME_NAME.blackjack} subtitle="Six decks. A natural 21 pays 3:2, dealer stands on soft 17." rules={<Rules />}>
       <Table key={owner ?? 'guest'} owner={owner} />
     </GameShell>
   )

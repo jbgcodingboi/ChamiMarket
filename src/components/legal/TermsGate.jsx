@@ -25,6 +25,13 @@ export default function TermsGate() {
         </a>{' '}
         before you continue. You only need to agree once.
       </p>
+      <div className="mt-3 rounded-lg border border-warn/40 bg-warn/10 p-3 text-sm leading-relaxed">
+        <p className="font-semibold text-fg">Play at your own risk</p>
+        <p className="mt-1 text-muted">
+          Chaminade High School and other schools and institutions prohibit gambling and games of chance. Everything here is play money with no cash value,
+          but it is up to you to follow their rules.
+        </p>
+      </div>
       <button ref={agreeRef} type="button" className="btn btn-primary mt-4 w-full py-2.5" onClick={accept}>
         I understand and agree
       </button>

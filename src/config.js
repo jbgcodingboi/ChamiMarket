@@ -38,5 +38,5 @@ export const MAX_KNOWN_MARKETS = 500
 export const SNAPSHOT_INTERVAL_MS = 5 * 60 * 1000
 
 /** Bump when the Terms of Use change, so everyone is asked to agree again. */
-export const TERMS_VERSION = '2026-10-16'
-export const TERMS_EFFECTIVE = 'October 16, 2026'
+export const TERMS_VERSION = '2026-10-23'
+export const TERMS_EFFECTIVE = 'October 23, 2026'
