@@ -208,18 +208,17 @@ loss (one click sets up Martingale), and stops at a profit or loss you choose. M
 every round; Chicken Cross auto cashes out at a lane you choose. Each game has its own small synthesized sounds,
 which can be muted.
 
-Game pages have plain addresses: `#/games/spin` (Roulette), `21` (Blackjack), `balls` (Plinko), `roll` (Dice),
+Game pages have short addresses: `#/games/spin` (Roulette), `21` (Blackjack), `balls` (Plinko), `roll` (Dice),
 `gems` (Mines), `cross` (Chicken Cross), `target` (Limbo), `rocket` (Crash) and `reels` (Golden Sevens), set in
-`src/games/names.js`. The old addresses named after each game still work and redirect. Every game page's
-browser tab reads "Games · Chami Market", so tabs and history don't name the game. On the site itself Roulette and Blackjack go
-by the plain names **Spin** and **21**.
+`src/games/names.js`. The old addresses named after each game still work and redirect. Game pages share one
+tab title, "Games · Chami Market", and Roulette and Blackjack are shown as **Spin** and **21**.
 
 Every game also plays from the keyboard: Space bets, spins, drops or deals (and starts or stops auto play), and
 games with more moves add letter keys such as C to cash out or H and S to hit and stand. Each game's rules list its
 keys. Shortcuts pause while you type in a field or a dialog is open. With reduced motion turned on in the device
 settings, games skip the confetti, shakes and long animations.
 
-They are also **provably fair**, using the scheme Stake-style games publish: each result comes from
+They are also **provably fair**, using the standard HMAC-SHA256 provably fair scheme: each result comes from
 `HMAC-SHA256(server seed, "<client seed>:<nonce>:<round>")`, four bytes per random number. You see the SHA-256 hash
 of the server seed before betting, and the nonce counts your bets. The seeds are set by the server and players can't
 change them. After 100 bets the pair is retired (never while a Mines, Chicken Cross or Crash round is open), its server
@@ -236,6 +235,8 @@ anyway, and a round started before a balance reset is dropped. Game records are 
 
 All of these live in `src/utils/curation.js` (with tests) and apply to live data, the snapshot and demo data alike.
 
+- **Topics**: markets about death, violence, war, crime and arrests, sex or drugs are hidden, since students use
+  the site. Whole words only, so team names like the Warriors still pass.
 - **Dates**: markets whose end date has passed are hidden, as are markets ending after June 1, 2027.
 - **Odds**: markets priced below 6% or above 95% are hidden, except ceasefire, alien and political-agreement
   markets and championship-style futures ("Will … win the 2027 Championship?"), which are listed at any price.
@@ -308,6 +309,8 @@ browser. Connecting a free [Supabase](https://supabase.com) project turns Chami 
   decrypts a saved run log. Limits: 5 an hour per player, 20 an hour from all guests, 1,000 a day, 2,000 unread.
 - **Removing a player as the site owner**: Actions tab › "Admin - delete a player" › Run workflow, with their
   username and DELETE. It deletes their login with the service role key and everything else cascades with it.
+  Both admin workflows run in an `admin` environment: add yourself as its required reviewer (Settings ›
+  Environments › admin) so no run starts without your approval.
 - **Terms**: a first-visit pop-up with a link to the full Terms of Use, a "play at your own risk" warning (schools
   like Chaminade don't allow gambling or games of chance, even with play money) and one "I understand and agree" button
   (`#/terms`). Agreement is stored per browser and versioned by `TERMS_VERSION` in `src/config.js`, and sign-ups
@@ -331,7 +334,7 @@ backend, otherwise it stays in local mode. Accounts made in local mode don't mov
 
 ### Setup
 
-1. **Create a project** at [supabase.com](https://supabase.com) (the free tier is plenty for a school).
+1. **Create a project** at [supabase.com](https://supabase.com) (the free tier is plenty for a small site).
 2. **Create the database**: open **SQL Editor**, paste all of `supabase/schema.sql` and press **Run**. It is safe
    to run again after you update the code.
 3. **Allow live prices (recommended)**: under **Database > Extensions**, make sure **http** is enabled. Without
@@ -341,8 +344,8 @@ backend, otherwise it stays in local mode. Accounts made in local mode don't mov
    - **Allow anonymous sign-ins**: on, so visitors can play as a guest without an account (see
      [Guests](#guests)). With it off, everyone logs in before playing, as before.
    - Leave every other provider off.
-   - Under **Authentication > Rate Limits**, raise the sign-up and sign-in limits if many students will register
-     from one school network (they all share an IP address).
+   - Under **Authentication > Rate Limits**, raise the sign-up and sign-in limits if many players sign up
+     from one shared network (they share an IP address).
 5. **Copy the keys** from **Project Settings > API**: the **Project URL**, the **anon / publishable** key (public)
    and the **service_role / secret** key (private, never put it in the site or a `VITE_` variable).
 6. **Add them to GitHub** under **Settings > Secrets and variables > Actions**:

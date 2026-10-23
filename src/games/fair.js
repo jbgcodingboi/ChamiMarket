@@ -1,5 +1,5 @@
 /**
- * Provably fair randomness, the same scheme Stake-style games publish:
+ * Provably fair randomness, the standard HMAC-SHA256 scheme:
  *
  *   bytes  = HMAC_SHA256(key = serverSeed, message = `${clientSeed}:${nonce}:${cursor}`)
  *   float  = b0/256 + b1/256^2 + b2/256^3 + b3/256^4   (4 bytes per float, 8 per HMAC)

@@ -102,7 +102,6 @@ describe('politics', () => {
       'Will Netanyahu remain Prime Minister through 2026?',
       'Israel and Saudi Arabia normalize relations by March 31?',
       'Russia x Ukraine ceasefire by March 31, 2027?',
-      'Will China invade Taiwan before 2027?',
       'Next UK Prime Minister: will Starmer be out by 2027?',
       'Will Trump impose 50% tariffs on Brazil?',
     ]) {
@@ -130,5 +129,11 @@ describe('curate', () => {
       base({ id: 'c', endDate: '2026-01-01T00:00:00Z' }),
     ]
     expect(curate(list, NOW).map((m) => m.id)).toEqual(['a'])
+  })
+  it('leaves out death, war, crime and other topics that do not belong on a student site', () => {
+    for (const title of ['Will Putin die in 2026?', 'US airstrike on Iran by June?', 'Will Diddy be convicted?', 'Russia x Ukraine war ends in 2026?', 'Will X be arrested?'])
+      expect(reason({ title })).toBe('sensitive')
+    for (const title of ['Will the Warriors win the NBA Finals?', 'Chargers vs. Raiders', 'Will Taylor Swift release a new album?'])
+      expect(reason({ title })).not.toBe('sensitive')
   })
 })

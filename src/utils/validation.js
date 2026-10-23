@@ -14,6 +14,10 @@ const RESERVED = new Set(
   [...PRO_TRADERS.map((t) => t.name), ...CASUAL_HANDLES, 'mod', 'support', 'staff', 'system', 'sim', 'root', 'owner', 'help', 'null', 'undefined'].map(nameKey),
 )
 const OFFICIAL = ['admin', 'moderator', 'official', 'chaminade', 'chamimarket'].map(nameKey)
+// Slurs and crude words (look-alikes included). Keep in step with private.is_reserved_name.
+const BLOCKED = ['fuck', 'shit', 'bitch', 'cunt', 'nigg', 'niga', 'fag', 'retard', 'whore', 'slut', 'porn', 'nazi', 'hitler', 'kkk', 'dick', 'pussy', 'penis', 'vagina', 'boob'].map(nameKey)
+/** Names that pass as school staff, like MrSmith, coach_dave or anything with teacher in it. */
+const STAFF = [/^(Mr|Mrs|Ms|Dr|Fr|Br|Bro|Coach|Principal|Teacher|Prof|Dean)_?[A-Z]/, /^(mrs?|ms|dr|fr|br|bro|coach|principal|teacher|prof|dean)_/i, /(principal|teacher|faculty)/i]
 
 /**
  * Names nobody can sign up with: the simulated players (and look-alikes such
@@ -23,7 +27,15 @@ const OFFICIAL = ['admin', 'moderator', 'official', 'chaminade', 'chamimarket'].
 export const isReservedName = (name) => {
   const key = nameKey(name.trim())
   // Names starting with guest would look like the Guest accounts in the feeds.
-  return RESERVED.has(key) || OFFICIAL.some((w) => key.includes(w)) || key.startsWith('guest') || /(^|[^a-z])sim([^a-z]|$)/i.test(name.trim())
+  const raw = name.trim()
+  return (
+    RESERVED.has(key) ||
+    OFFICIAL.some((w) => key.includes(w)) ||
+    key.startsWith('guest') ||
+    /(^|[^a-z])sim([^a-z]|$)/i.test(raw) ||
+    BLOCKED.some((w) => key.includes(w)) ||
+    STAFF.some((re) => re.test(raw))
+  )
 }
 
 /** A username's rules: 3 to 20 letters, numbers or underscores, and not reserved. */

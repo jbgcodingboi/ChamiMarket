@@ -28,6 +28,9 @@ permissions: {}
 jobs:
   report:
     runs-on: ubuntu-latest
+    # Add yourself as a required reviewer for the "admin" environment (Settings > Environments),
+    # so a run waits for your approval, even if someone else can start workflows.
+    environment: admin
     timeout-minutes: 5
     permissions:
       contents: read
