@@ -6,5 +6,6 @@
     "react/rules-of-hooks": "error",
     "react/only-export-components": ["warn", { "allowConstantExport": true }],
     "no-undef": "error"
-  }
+  },
+  "overrides": [{ "files": ["supabase/functions/**"], "globals": { "Deno": "readonly" } }]
 }

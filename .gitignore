@@ -32,3 +32,6 @@ public/data/
 # Private keys (e.g. feedback report keys)
 *.key
 *.pem
+
+# Built by scripts/build-sync-function.mjs
+supabase/functions/sync/index.ts

@@ -1,10 +1,9 @@
 name: Sync backend
 
-# Keeps the Supabase backend's prices and results current (scripts/sync-backend.mjs).
+# A manual backup for the sync (scripts/sync-backend.mjs). The database runs the same sync every 5 minutes
+# through the Supabase sync function (see deploy-sync.yml), so nothing schedules this one.
 # Does nothing until the SUPABASE_URL variable and SUPABASE_SERVICE_ROLE_KEY secret are set.
 on:
-  schedule:
-    - cron: '*/5 * * * *'
   workflow_dispatch:
 
 permissions: {}

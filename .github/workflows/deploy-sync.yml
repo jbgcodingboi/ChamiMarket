@@ -1,0 +1,57 @@
+name: Deploy sync function
+
+# Deploys the 5-minute sync (supabase/functions/sync, built from scripts/sync-core.mjs) to Supabase
+# whenever its code changes. Needs the SUPABASE_ACCESS_TOKEN secret (a Supabase access token) and the
+# SUPABASE_URL variable; without the token it skips.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/**'
+      - 'src/services/**'
+      - 'src/utils/**'
+      - 'supabase/functions/**'
+      - 'package-lock.json'
+      - '.github/workflows/deploy-sync.yml'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: deploy-sync
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      CONFIGURED: ${{ vars.SUPABASE_URL != '' && secrets.SUPABASE_ACCESS_TOKEN != '' }}
+    steps:
+      - if: env.CONFIGURED != 'true'
+        run: echo "Add the SUPABASE_ACCESS_TOKEN secret to deploy the sync function; skipping."
+      - if: env.CONFIGURED == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - if: env.CONFIGURED == 'true'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - if: env.CONFIGURED == 'true'
+        run: npm ci --ignore-scripts
+      - if: env.CONFIGURED == 'true'
+        run: node scripts/build-sync-function.mjs
+      - if: env.CONFIGURED == 'true'
+        name: Deploy to Supabase
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          ref="$(printf '%s' "$SUPABASE_URL" | sed -nE 's#^https://([a-z0-9]{20})\.supabase\.co/?$#\1#p')"
+          if [ -z "$ref" ]; then echo "SUPABASE_URL should look like https://<project-ref>.supabase.co"; exit 1; fi
+          # No JWT check: the function takes no input and public.sync_claim limits it to one run every 4 minutes.
+          npx --yes supabase@2.122.0 functions deploy sync --project-ref "$ref" --use-api --no-verify-jwt

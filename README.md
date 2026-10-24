@@ -348,47 +348,44 @@ backend, otherwise it stays in local mode. Accounts made in local mode don't mov
      from one shared network (they share an IP address).
 5. **Copy the keys** from **Project Settings > API**: the **Project URL**, the **anon / publishable** key (public)
    and the **service_role / secret** key (private, never put it in the site or a `VITE_` variable).
-6. **Add them to GitHub** under **Settings > Secrets and variables > Actions**:
-   - Variables: `SUPABASE_URL` and `SUPABASE_ANON_KEY`
-   - Secret: `SUPABASE_SERVICE_ROLE_KEY`
-7. **Deploy**: re-run the Pages deploy (or push to `main`). Within five minutes the **Sync backend** workflow
-   starts filling in markets and results. Run it by hand from the Actions tab to start right away.
+6. **Set up the sync** (see [Scheduled sync](#scheduled-sync)).
+7. **Give the site its keys**: on Cloudflare Pages (or Vercel or Netlify) set `VITE_SUPABASE_URL` and
+   `VITE_SUPABASE_ANON_KEY` as environment variables (see [Deploy](#deploy)). On GitHub Pages they come from the
+   `SUPABASE_URL` and `SUPABASE_ANON_KEY` repository variables instead.
 
-On Vercel or Netlify, set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` as environment variables instead (the
-sync job still runs on GitHub). For local development copy `.env.example` to `.env.local`.
+For local development copy `.env.example` to `.env.local`.
 
-### Faster sync
+### Scheduled sync
 
-GitHub starts scheduled workflows late on busy days, sometimes hours late, which delays settlements. A run that is
-asked for through the API starts right away, so the database can ask for one every 5 minutes itself (pg_cron and
-pg_net; see the end of `supabase/schema.sql`). One-time setup:
+Every 5 minutes the database (pg_cron and pg_net, see the end of `supabase/schema.sql`) calls the project's
+**sync** Edge Function, which runs `scripts/sync-core.mjs` with the project's own URL and service key. Supabase
+provides those to the function, so the service key never leaves Supabase, and nothing depends on GitHub's
+schedule. The function takes no input, and `public.sync_claim` lets a run start at most once every 4 minutes, so
+extra calls do nothing. Its logs are private, under **Edge Functions > sync > Logs** in Supabase.
 
-1. **Make a GitHub token** at GitHub > Settings > Developer settings > Personal access tokens > **Fine-grained
-   tokens** > Generate new token. Repository access: **Only select repositories**, pick this repository.
-   Permissions: **Actions: Read and write** (nothing else). Pick an expiration and note the date.
-2. **Turn on the extensions** in Supabase under **Database > Extensions**: **pg_cron** and **pg_net** (re-running the
-   schema tries to turn them on too).
-3. **Save the token in Vault**: in the SQL Editor run
-   `select vault.create_secret('github_pat_…', 'github_dispatch_token');` with your token. It is stored encrypted and
-   only the database can read it; it never goes into the site.
-4. **Run `supabase/schema.sql` again.** It schedules the `chami-sync` job.
+One-time setup:
 
-To check it: `select * from cron.job;` lists the job, and
-`select status_code, created from net._http_response order by created desc limit 5;` shows GitHub's answers (204
-means the run was started). When the token expires, make a new one and run
-`select vault.update_secret((select id from vault.secrets where name = 'github_dispatch_token'), 'github_pat_…');`.
-Without a token nothing breaks: the GitHub schedule keeps running the sync, just less punctually.
+1. **Turn on the extensions** in Supabase under **Database > Extensions**: **pg_cron** and **pg_net**.
+2. **Let GitHub deploy the function**: in Supabase, open your account menu > **Access Tokens** and generate a
+   token. In GitHub add it under **Settings > Secrets and variables > Actions** as the secret
+   `SUPABASE_ACCESS_TOKEN`, and add the variable `SUPABASE_URL` (the Project URL). Then run **Deploy sync
+   function** from the Actions tab. It also redeploys on its own whenever the sync code changes.
+3. **Run `supabase/schema.sql` again.** It schedules the `chami-sync` job.
+
+To check it: `select status_code, created from net._http_response order by created desc limit 5;` shows the
+function's answers (202 means a run started, 200 that one had started less than 4 minutes before). The
+**Sync backend** workflow runs the same sync by hand from the Actions tab, using the `SUPABASE_SERVICE_ROLE_KEY`
+secret, if you ever need it.
 
 ### How it fits together
 
-- **Prices and results**: `scripts/sync-backend.mjs` runs every 5 minutes (`.github/workflows/sync-backend.yml`,
-  started by the database once [Faster sync](#faster-sync) is set up, and by GitHub's own schedule as a backup).
+- **Prices and results**: the sync (`scripts/sync-core.mjs`) runs every 5 minutes as a Supabase Edge Function
+  (see [Scheduled sync](#scheduled-sync)).
   It builds the same curated Polymarket, Chaminade and Quick listings as the app, stores them in the `markets`
   table, checks every held market against its official source and settles winners for every player at once. The
   app lists Chaminade and Quick markets from that table, so the price a player sees is the price the server
   trades at. It also keeps a free Supabase project from pausing for inactivity.
-- **Settlement timing**: results land on the next sync run, usually within 5 to 10 minutes (GitHub can delay
-  scheduled runs at busy times). Polymarket markets a player holds are also checked the moment they're due.
+- **Settlement timing**: results land on the next sync run, usually within 5 minutes. Polymarket markets a player holds are also checked the moment they're due.
 - **Username logins**: Supabase signs people in by email, so a username-only account gets a private placeholder
   address (`<username>@users.chamimarket.app`). Nothing is ever sent to it. Set `VITE_USERNAME_EMAIL_DOMAIN`
   before launch if you want a different domain; changing it later breaks existing username logins.
@@ -400,11 +397,12 @@ Without a token nothing breaks: the GitHub schedule keeps running the sync, just
 ## Security
 
 The site itself holds no secret: every upstream API is public, and the Supabase anon key is public by design
-(row level security and function grants decide what it can do). The service key only lives in GitHub's secrets
-for the sync job. Hardening in place:
+(row level security and function grants decide what it can do). The service key stays inside Supabase, where the
+sync function runs (plus a GitHub secret if you keep the manual sync workflow). Hardening in place:
 
 - **Content-Security-Policy**: `security.config.js` holds the policy. The build adds it as a `<meta>` tag (the
-  only option on GitHub Pages), and `vercel.json` and `netlify.toml` send it as a header together with
+  only option on GitHub Pages), and `public/_headers` (Cloudflare Pages), `vercel.json` and `netlify.toml` send it
+  as a header together with
   `frame-ancestors 'none'`, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`
   and `Cross-Origin-Opener-Policy`. Scripts and styles are same-origin only, `connect-src` lists the five APIs the
   browser calls, and a test fails if the app fetches from a host the policy doesn't list or the host configs drift.
@@ -414,8 +412,7 @@ for the sync job. Hardening in place:
   Stored markets are re-validated on load, including that images are `https` URLs. Nothing renders HTML from data.
 - **CI**: GitHub Actions are pinned to commit SHAs, the workflow has no default permissions (only the deploy job
   gets `pages` and `id-token`), installs run with `--ignore-scripts`, and `npm audit` gates the build. Dependabot
-  (`.github/dependabot.yml`) opens weekly updates for npm packages and actions. Scheduled runs only rebuild the
-  latest reviewed commit on `main` with fresh data.
+  (`.github/dependabot.yml`) opens weekly updates for npm packages and actions.
 
 In local mode anyone with access to the browser can read or edit `localStorage`, including balances and the
 session. That's fine for a single-browser demo; the Supabase backend is what makes balances trustworthy.
@@ -425,6 +422,13 @@ session. That's fine for a single-browser demo; the Supabase backend is what mak
 The build is a static SPA in `dist/`. It uses hash-based routing (`/#/market/123`), so deep links never 404 and no
 server configuration is strictly required. Rewrite rules are still included for hosts that use them.
 
+- **Cloudflare Pages** (works from a private repository): Workers & Pages > Create > Pages > Connect to Git, pick
+  the repository, set the build command to `npm run snapshot && npm run build` and the output directory to
+  `dist`, and add the environment variables `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`. `.node-version` picks
+  Node 22 and `public/_headers` sends the security headers. It rebuilds on every push to `main`. For a custom
+  domain at the apex (like `example.lol`), add the domain to Cloudflare first (Websites > Add a site, then switch
+  the domain's nameservers at your registrar to the two Cloudflare shows), then add it under the Pages project's
+  **Custom domains**. Also update the Site URL under Supabase **Authentication > URL Configuration** if it changes.
 - **Vercel**: import the repository. `vercel.json` sets the build command, the `dist` output and an SPA rewrite.
 - **Netlify**: import the repository. `netlify.toml` sets `npm run build` and `dist`; `public/_redirects` adds the
   SPA fallback.
@@ -432,6 +436,18 @@ server configuration is strictly required. Rewrite rules are still included for 
   `.github/workflows/deploy-pages.yml` tests, builds and publishes. Asset paths are relative (`base: './'`), so
   project sites at `/<repo>/` work out of the box. Set `BASE_PATH=/<repo>/` at build time if you prefer absolute
   paths.
+
+### Making the repository private
+
+Free GitHub accounts only serve GitHub Pages from public repositories, and private repositories get 2,000
+Actions minutes a month. With the site on Cloudflare Pages and the sync on Supabase, GitHub only runs CI on pull
+requests, the sync function deploy and the twice-monthly keepalive, well inside that. In order:
+
+1. Get the site working on Cloudflare Pages and move the custom domain there (above).
+2. Set up the [Scheduled sync](#scheduled-sync) and check it answers.
+3. Remove `.github/workflows/deploy-pages.yml`, then turn off GitHub Pages under **Settings > Pages**.
+4. **Settings > General > Danger Zone > Change visibility > Make private.**
+5. Delete the old `github_dispatch_token` from Supabase Vault and revoke that token on GitHub; nothing uses it.
 
 ## Project structure
 
@@ -448,7 +464,8 @@ src/
 supabase/
   schema.sql    Tables, row level security and every server-side money function
   tests/        Database tests and a local stand-in for Supabase's auth schema
-scripts/        Snapshot job, backend sync job and the shared server-side data sources
+  functions/sync/  The scheduled sync as an Edge Function (built into index.ts by scripts/build-sync-function.mjs)
+scripts/        Snapshot job, the sync (sync-core.mjs, run by the function or sync-backend.mjs) and shared data sources
 ```
 
 ## Assumptions
