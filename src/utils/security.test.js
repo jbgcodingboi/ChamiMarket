@@ -11,11 +11,14 @@ const root = new URL('../../', import.meta.url)
 const read = (f) => readFileSync(new URL(f, root), 'utf8')
 
 describe('security headers', () => {
-  it('keeps vercel.json and netlify.toml in step with security.config.js', () => {
+  it('keeps vercel.json, netlify.toml and public/_headers in step with security.config.js', () => {
     const vercel = JSON.parse(read('vercel.json')).headers[0].headers
     expect(Object.fromEntries(vercel.map((h) => [h.key, h.value]))).toEqual(SECURITY_HEADERS)
     const netlify = read('netlify.toml')
     for (const [k, v] of Object.entries(SECURITY_HEADERS)) expect(netlify).toContain(`${k} = "${v}"`)
+    // Cloudflare Pages reads public/_headers.
+    const cloudflare = read('public/_headers')
+    for (const [k, v] of Object.entries(SECURITY_HEADERS)) expect(cloudflare).toContain(`  ${k}: ${v}\n`)
   })
   it('lists every API host the app fetches from in connect-src', () => {
     const files = [

@@ -2468,35 +2468,41 @@ end $$;
 -- ---------------------------------------------------------------------------
 -- A reliable 5-minute sync
 --
--- GitHub runs scheduled workflows late (often hours late) on busy days, but
--- runs a "workflow_dispatch" request right away. So the database itself asks
--- GitHub to run the sync every 5 minutes, with pg_cron and pg_net. It needs a
--- GitHub token saved in Supabase Vault as github_dispatch_token (see README,
--- "Faster sync"); without one it does nothing and the GitHub schedule stays
--- the only trigger.
+-- The database starts the sync itself every 5 minutes with pg_cron and pg_net,
+-- by calling this project's sync function (supabase/functions/sync), so nothing
+-- depends on GitHub's schedule or a GitHub token.
 -- ---------------------------------------------------------------------------
 
-/** Asks GitHub to run the sync workflow now. Returns the pg_net request id, or null when it can't. */
+/**
+ * Lets a sync run start at most once every 4 minutes. The sync function
+ * (supabase/functions/sync) takes no key, so this is what keeps extra calls
+ * from doing anything. Only the service role (the function itself) may call it.
+ */
+create table if not exists private.sync_state (
+  id int primary key default 1 check (id = 1),
+  started_at timestamptz not null default '-infinity'
+);
+insert into private.sync_state (id) values (1) on conflict (id) do nothing;
+
+create or replace function public.sync_claim() returns boolean
+language plpgsql volatile security definer set search_path = '' as $$
+declare v_ok boolean;
+begin
+  update private.sync_state set started_at = now() where id = 1 and started_at < now() - interval '4 minutes'
+  returning true into v_ok;
+  return coalesce(v_ok, false);
+end $$;
+
+/** Starts the sync function now. Returns the pg_net request id, or null when it can't. */
 create or replace function private.dispatch_sync() returns bigint
 language plpgsql volatile security definer set search_path = '' as $$
-declare v_token text; v_id bigint;
+declare v_id bigint;
 begin
-  begin
-    select decrypted_secret into v_token from vault.decrypted_secrets where name = 'github_dispatch_token' limit 1;
-  exception when others then
-    return null;
-  end;
-  if coalesce(v_token, '') = '' then return null; end if;
   select net.http_post(
-    -- The repository's permanent id, so the call keeps working if the repository is renamed.
-    url := 'https://api.github.com/repositories/1421390192/actions/workflows/sync-backend.yml/dispatches',
-    body := '{"ref": "main"}'::jsonb,
-    headers := jsonb_build_object(
-      'Authorization', 'Bearer ' || v_token,
-      'Accept', 'application/vnd.github+json',
-      'X-GitHub-Api-Version', '2022-11-28',
-      'User-Agent', 'chami-market-sync',
-      'Content-Type', 'application/json'),
+    -- This project's sync function (deployed by .github/workflows/deploy-sync.yml).
+    url := 'https://ksyzpzbdlwinoirnprso.supabase.co/functions/v1/sync',
+    body := '{}'::jsonb,
+    headers := jsonb_build_object('Content-Type', 'application/json'),
     timeout_milliseconds := 10000
   ) into v_id;
   return v_id;
@@ -2581,6 +2587,7 @@ grant execute on function
 to authenticated;
 
 do $$ begin
-  grant execute on function public.sync_markets(jsonb), public.sync_resolutions(jsonb), public.held_markets(), public.sync_snapshots() to service_role;
+  grant execute on function public.sync_markets(jsonb), public.sync_resolutions(jsonb), public.held_markets(), public.sync_snapshots(),
+    public.sync_claim() to service_role;
 exception when undefined_object then null;
 end $$;

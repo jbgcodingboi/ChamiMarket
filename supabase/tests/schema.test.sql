@@ -687,26 +687,29 @@ select pg_temp.ok(not exists (select 1 from auth.users where id = :'guest2') and
 
 -- Faster sync: the database asks GitHub to run the sync ---------------------------------
 reset role;
-select pg_temp.ok(private.dispatch_sync() is null, 'without a saved GitHub token the dispatch does nothing');
--- Stand-ins for Supabase Vault and pg_net.
-create schema if not exists vault;
-create table vault.decrypted_secrets (name text, decrypted_secret text);
+-- Stand-in for pg_net.
 create schema if not exists net;
 create table net.calls (url text, body jsonb, headers jsonb);
 create function net.http_post(url text, body jsonb, headers jsonb, timeout_milliseconds int) returns bigint language sql as $$
   insert into net.calls values (url, body, headers) returning 42::bigint $$;
-select pg_temp.ok(private.dispatch_sync() is null, 'an empty vault still does nothing');
-insert into vault.decrypted_secrets values ('github_dispatch_token', 'ghp_test');
 select private.dispatch_sync() as dispatched \gset
 select pg_temp.ok(:dispatched = 42
-  and (select url from net.calls) = 'https://api.github.com/repositories/1421390192/actions/workflows/sync-backend.yml/dispatches'
-  and (select body ->> 'ref' from net.calls) = 'main'
-  and (select headers ->> 'Authorization' from net.calls) = 'Bearer ghp_test', 'with a token it asks GitHub to run the sync on main');
+  and (select url from net.calls) = 'https://ksyzpzbdlwinoirnprso.supabase.co/functions/v1/sync'
+  and (select count(*) from net.calls) = 1 and not ((select headers from net.calls) ? 'Authorization'),
+  'the schedule starts this project''s sync function, with no key or token');
 select pg_temp.expect_error($$set role authenticated; select private.dispatch_sync()$$, '%permission denied%');
+reset role;
+-- A sync can start at most once every 4 minutes, and only the sync function may claim one.
+update private.sync_state set started_at = '-infinity';
+select pg_temp.ok(public.sync_claim() and not public.sync_claim(), 'a second start within 4 minutes is refused');
+update private.sync_state set started_at = now() - interval '5 minutes';
+select pg_temp.ok(public.sync_claim(), 'a new run can start once 4 minutes have passed');
+select pg_temp.expect_error($$set role anon; select public.sync_claim()$$, '%permission denied%');
+reset role;
+select pg_temp.expect_error($$set role authenticated; select public.sync_claim()$$, '%permission denied%');
 reset role;
 set client_min_messages = warning;
 drop schema net cascade;
-drop schema vault cascade;
 set client_min_messages = notice;
 
 \echo 'all database tests passed'

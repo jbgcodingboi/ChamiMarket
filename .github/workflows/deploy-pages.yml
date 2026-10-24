@@ -1,18 +1,16 @@
 name: Deploy to GitHub Pages
 
+# Builds on pushes to main only. The bundled snapshot (public/data/) is just a fallback for when live data
+# fails, so it doesn't need a schedule. This workflow goes away once the site is hosted on Cloudflare Pages.
 on:
   push:
     branches: [main]
-  # Every 15 minutes: refresh the bundled Polymarket snapshot and Chaminade games/results (public/data/).
-  # Scheduled runs always build the latest commit on main, so they redeploy reviewed code with fresh data only.
-  schedule:
-    - cron: '*/15 * * * *'
   workflow_dispatch:
 
 # Nothing by default; each job asks for what it needs.
 permissions: {}
 
-# Queue rather than cancel, so a scheduled refresh never kills a deploy halfway.
+# Queue rather than cancel, so one deploy never cuts another off halfway.
 concurrency:
   group: pages
   cancel-in-progress: false
