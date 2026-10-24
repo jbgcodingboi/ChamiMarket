@@ -429,6 +429,11 @@ select pg_temp.ok((select count(*) from public.portfolios) = 0, 'guests can''t r
 select pg_temp.expect_error($$select public.buy('123', 'yes', 10, 0.5)$$, '%permission denied%');
 select pg_temp.ok(public.username_available('carol') and not public.username_available('Alice'), 'username availability is case-insensitive');
 select pg_temp.ok(not public.username_available('cryptooracle') and not public.username_available('Official_Bot'), 'reserved names never show as available');
+select pg_temp.ok(not public.username_available('Sh1tposter') and not public.username_available('b_i_t_c_h')
+  and not public.username_available('MrSmith') and not public.username_available('Coach_Dave') and not public.username_available('bestteacher'),
+  'crude names (look-alikes too) and names that pass as school staff are refused');
+select pg_temp.ok(public.username_available('Drake') and public.username_available('Frank') and public.username_available('mrbeastfan')
+  and public.username_available('coachella'), 'ordinary names that start the same way are still allowed');
 
 -- Recovery codes --------------------------------------------------------------
 reset role;

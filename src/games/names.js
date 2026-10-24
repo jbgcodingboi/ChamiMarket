@@ -15,8 +15,8 @@ export const GAME_NAME = {
 }
 
 /**
- * Each game's address, keyed the same way. The words are deliberately plain;
- * the old addresses (#/games/roulette and so on) still work and redirect here.
+ * Each game's address, keyed the same way. These are short words; the old
+ * addresses (#/games/roulette and so on) still work and redirect here.
  */
 export const GAME_PATH = {
   roulette: '/games/spin',

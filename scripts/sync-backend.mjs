@@ -72,9 +72,12 @@ const log = (msg) => console.log(msg)
 setRequestBudget(150)
 
 // 1. Markets -------------------------------------------------------------------
+// The school's calendar changes slowly, so read it about twice an hour (runs land every 5 minutes) instead of
+// on every run. House markets keep their last price in between; trades only pause after 3 hours without one.
+const readCalendar = new Date(now).getUTCMinutes() % 30 < 5
 const [catalog, house, coinData, forecasts, closes] = await Promise.allSettled([
   fetchCatalog({ now }),
-  fetchChaminade(now),
+  readCalendar ? fetchChaminade(now) : Promise.resolve(null),
   Promise.allSettled(COINS.map((c) => fetchCoinData(c, now))),
   Promise.allSettled(STATIONS.map((s) => fetchForecast(s))),
   fetchStockCloses(now),

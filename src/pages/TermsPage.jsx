@@ -43,7 +43,7 @@ const SECTIONS = [
     title: 'Not advice, and no promise of accuracy',
     body: [
       'Nothing on the site is financial, investment, betting, legal, or other professional advice. Prices, odds, scores, weather, and other data come from third party sources or our own estimates and may be wrong, late, or missing. Games and markets may contain mistakes. Do not rely on the site for any real world decision.',
-      'Learning about odds is fine. Using what you see here to place real bets is your own choice and responsibility. If gambling is ever a problem for you or someone you know, call or text 1-800-GAMBLER.',
+      'Learning about odds is fine. Don’t use anything on this site to place real bets, and don’t bet real money or anything of value with other players on leaderboard ranks, markets, or game results. Real money gambling is illegal for minors. If gambling is ever a problem for you or someone you know, call or text 1-800-GAMBLER.',
     ],
   },
   {
@@ -74,7 +74,7 @@ const SECTIONS = [
     title: 'Your information',
     body: [
       'We store only what the site needs to work: your username (or email, if you sign up with one), a securely hashed password, your recovery code in hashed form, your play money activity, and any messages you send through the Feedback tab. Passwords are never stored in readable form. Your username, balance, trades, and game results can be seen by other players on leaderboards and feeds.',
-      'The site is hosted on GitHub Pages, and accounts stored on our server are hosted with Supabase, so those services process this data for us. Your browser also stores some settings and data locally. We do not sell your information or show ads. Do not enter sensitive personal information anywhere on the site. If you play as a guest, your play money activity is kept under an anonymous guest account until you sign up or it goes unused for 30 days.',
+      'The site is hosted on GitHub Pages, and accounts stored on our server are hosted with Supabase, so those services process this data for us and automatically log technical data, such as IP addresses, to run and protect their services. Your browser also stores some settings and data locally. We do not sell your information or show ads. Do not enter sensitive personal information anywhere on the site. If you play as a guest, your play money activity is kept under an anonymous guest account until you sign up or it goes unused for 30 days.',
       'You can delete your account at any time from the account menu. That permanently erases the account, its balance, trades, game history, and leaderboard entries. For anything else about your data, contact us as described below.',
     ],
   },
@@ -89,7 +89,7 @@ const SECTIONS = [
     id: 'content',
     title: 'Ownership and takedown requests',
     body: [
-      'The site’s own design and code belong to its creator, and the source code is published on GitHub under its own license. Third party names, data, and marks belong to their owners.',
+      'The site’s own design and code belong to its creator. Third party names, data, and marks belong to their owners.',
       'If you represent an organization named on the site, or believe anything here infringes your rights, is inaccurate, or should come down, contact us and we will review it promptly and remove it where appropriate.',
     ],
   },

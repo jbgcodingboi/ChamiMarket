@@ -32,6 +32,10 @@ describe('auth validation', () => {
     expect(validateIdentifier('cryptooracle')).toMatch(/reserved/)
     expect(isReservedName('ChaminadeOfficial')).toBe(true)
     expect(isReservedName('site_admin')).toBe(true)
+    // Crude words, look-alikes included, and names that pass as school staff.
+    for (const n of ['Sh1tposter', 'b_i_t_c_h', 'MrSmith', 'Coach_Dave', 'coach_d', 'bestteacher', 'Principal']) expect(isReservedName(n)).toBe(true)
+    // Ordinary names that start the same way stay allowed.
+    for (const n of ['Drake', 'Frank', 'Brian', 'mrbeastfan', 'coachella']) expect(isReservedName(n)).toBe(false)
     // Names that would pass for the Guest accounts in the feeds.
     expect(isReservedName('Guest')).toBe(true)
     expect(isReservedName('guest_lover')).toBe(true)

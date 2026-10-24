@@ -156,7 +156,18 @@ export function hasEnded(m, now = Date.now()) {
 }
 
 /** Why a market is hidden, or null when it should be listed. */
+/**
+ * Topics that don't belong on a site students use: death, violence, war, crime
+ * and arrests, sex and drugs. Whole words only, so team names like the
+ * Warriors or the Chargers still pass. Positions already held still settle.
+ */
+const SENSITIVE =
+  /\b(die|dies|died|death|deaths|dead|kill|kills|killed|assassinat\w*|murder\w*|shooting|terror\w*|bomb|bombs|bombing\w*|airstrikes?|missiles?|nuclear (strike|attack|weapon|detonation)|nuke|war|wars|invade\w*|invasion|hostages?|arrest|arrested|indict\w*|convict\w*|sentenced|prison|jail|charged|epstein|sex|sexual\w*|porn\w*|rape|abuse|cocaine|fentanyl|overdose|suicide|deport\w*)\b/
+
+export const isSensitive = (m) => SENSITIVE.test(`${m.title ?? ''} ${m.eventTitle ?? ''}`.toLowerCase())
+
 export function exclusionReason(m, now = Date.now()) {
+  if (isSensitive(m)) return 'sensitive'
   const end = endTime(m)
   if (!Number.isFinite(end)) return 'no-end-date'
   if (end <= now) return 'ended'

@@ -709,6 +709,12 @@ language sql immutable set search_path = '' as $$
     or lower(coalesce(p_name, '')) ~ '(^|[^a-z])sim([^a-z]|$)'
     -- Names starting with guest would look like the Guest accounts in the feeds.
     or private.name_key(p_name) like 'guest%'
+    -- Slurs and crude words (look-alikes included), and names that pass as school staff.
+    or exists (select 1 from unnest(array['fuck', 'shit', 'bitch', 'cunt', 'nigg', 'niga', 'fag', 'retard', 'whore', 'slut', 'porn', 'nazi', 'hitler', 'kkk', 'dick', 'pussy', 'penis', 'vagina', 'boob']) w
+      where position(private.name_key(w) in private.name_key(p_name)) > 0)
+    or coalesce(p_name, '') ~ '^(Mr|Mrs|Ms|Dr|Fr|Br|Bro|Coach|Principal|Teacher|Prof|Dean)_?[A-Z]'
+    or lower(coalesce(p_name, '')) ~ '^(mrs?|ms|dr|fr|br|bro|coach|principal|teacher|prof|dean)_'
+    or lower(coalesce(p_name, '')) ~ '(principal|teacher|faculty)'
 $$;
 
 /** The username rules for a new player, or a guest picking a name: raises when the name can't be used. */
